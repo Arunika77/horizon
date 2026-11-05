@@ -4,7 +4,9 @@
 Fluid cases send UseItem into a deep pool; a UseItemOn control has a mob
 under the last look direction. Compare spawn, egg count and used stat. Covers
 lava/water sources, flowing lava, a solid obstruction, waterlogged blocks,
-creative, adventure (with/without can_place_on) and peaceful monster eggs.
+creative, adventure (with/without can_place_on) and peaceful monster eggs. The Ender
+Dragon's egg (Horizon simulates the dragon apart from other mobs) is used on a block by
+hand and fired from a dispenser.
 """
 import json
 try:
@@ -24,6 +26,7 @@ CASES = [
     ('adventure-allowed', 'lava', 'strider', 'adventure',
      '[minecraft:can_place_on={blocks:"minecraft:lava"}]', True),
     ('peaceful', 'lava', 'zombie', 'survival', '', False),
+    ('block-use-dragon', 'stone', 'ender_dragon', 'survival', '', True),
 ]
 SCRIPT = [("setup", ["chat on", "cmd Alice gamerule spawn_mobs false"])]
 previous_mode = "creative"
@@ -37,15 +40,15 @@ for name, block, mob, mode, component, spawn in CASES:
         'cmd Alice fill -2 74 -2 6 80 6 minecraft:stone',
         'cmd Alice fill -2 81 -2 6 85 6 minecraft:air',
         f'cmd Alice fill 0 75 0 4 80 4 minecraft:{block}',
-        f'cmd Alice tp @s 2.5 81 -0.5 0 {0 if name == "block-use" else 50}',
-        *(['cmd Alice summon minecraft:strider 2.5 81 1.5 {NoAI:1b}'] if name == 'block-use' else []),
+        f'cmd Alice tp @s 2.5 81 -0.5 0 {0 if name.startswith("block-use") else 50}',
+        *(['cmd Alice summon minecraft:strider 2.5 81 1.5 {NoAI:1b}'] if name.startswith('block-use') else []),
         f'cmd Alice give @s {egg}{component} 8',
         'cmd Alice scoreboard objectives remove eggs',
         f'cmd Alice scoreboard objectives add eggs minecraft.used:minecraft.{mob}_spawn_egg',
         *([f'cmd Alice gamemode {mode}'] if mode != 'creative' else []),
     ]
     previous_mode = mode
-    SCRIPT += [(name + '-setup', setup), (name + '-use', ['use-on Alice 4 80 -1' if name == 'block-use' else 'use Alice 50']),
+    SCRIPT += [(name + '-setup', setup), (name + '-use', ['use-on Alice 4 80 -1' if name.startswith('block-use') else 'use Alice 50']),
                (name + '-check', [
                    f'cmd Alice execute {"if" if spawn else "unless"} entity @e[type=minecraft:{mob}]',
                    f'cmd Alice clear @s {egg} 0',
@@ -53,6 +56,23 @@ for name, block, mob, mode, component, spawn in CASES:
                ])]
     EXPECTED += [f'{name}-check pass', f'{name}-check eggs {7 if spawn and mode != "creative" else 8}',
                  f'{name}-check pass']
+
+# SpawnEggItemBehavior: a powered dispenser spawns the dragon in front of it and keeps one egg of two.
+SCRIPT += [
+    ('dispense-dragon-setup', [
+        'cmd Alice gamemode creative', 'cmd Alice kill @e[type=!player]', 'cmd Alice difficulty normal',
+        'cmd Alice fill -2 74 -2 6 80 6 minecraft:stone', 'cmd Alice fill -2 81 -2 6 85 6 minecraft:air',
+        'cmd Alice tp @s 2.5 81 -0.5 0 0',
+        'cmd Alice setblock 2 81 4 minecraft:dispenser[facing=north]'
+        '{Items:[{Slot:0b,id:"minecraft:ender_dragon_spawn_egg",count:2}]}',
+    ]),
+    ('dispense-dragon-use', ['cmd Alice setblock 2 81 5 minecraft:redstone_block']),
+    ('dispense-dragon-check', [
+        'cmd Alice execute if entity @e[type=minecraft:ender_dragon]',
+        'cmd Alice execute if data block 2 81 4 Items[{count:1}]',
+    ]),
+]
+EXPECTED += ['dispense-dragon-check pass', 'dispense-dragon-check pass']
 
 
 def shown(lines):
@@ -79,7 +99,7 @@ def check(native, all_lines):
 
 def main():
     lines = net.one_player('spawn-egg-fluid-parity', SCRIPT, shown, check, __doc__, step_seconds=0.5)
-    print(f'spawn eggs in fluids: {len(CASES)} cases, {len(lines)} results match vanilla')
+    print(f'spawn eggs in fluids: {len(CASES) + 1} cases, {len(lines)} results match vanilla')
 
 
 if __name__ == '__main__':

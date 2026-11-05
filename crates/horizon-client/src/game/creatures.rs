@@ -422,9 +422,8 @@ impl Game<'_> {
     /// persistent: the despawn rule holds it like any other mob, and only
     /// its NBT can make it persistent.
     pub(super) fn spawn_mob_spawned(&mut self, kind: &str, at: [f64; 3]) -> Option<u32> {
-        // Ender Dragons have their own entity implementation rather than a
-        // `Mob` entry.  Spawn eggs still go through `SpawnEggItem.spawnMob`,
-        // so route this special entity through the same spawned-entity path.
+        // The Ender Dragon is not a `Mob` entry: it has its own simulation
+        // (`SpawnEggItem.spawnMob`).
         if matches!(kind, "ender_dragon" | "minecraft:ender_dragon") {
             return self.spawn_dragon_spawned(at);
         }
