@@ -489,6 +489,8 @@ struct Options {
     seed: i64,
     creative: bool,
     test_terrain: bool,
+    /// `--pregen`: enable the command even when the saved Extras switch is off.
+    pregen: bool,
     frames: Option<u64>,
     /// A splitscreen player: the split window paces every player's frames, not each its own.
     paced_by_split: bool,
@@ -646,6 +648,7 @@ impl Options {
             seed: 0,
             creative: false,
             test_terrain: false,
+            pregen: false,
             frames: None,
             paced_by_split: false,
             split_guest: false,
@@ -718,7 +721,10 @@ impl Options {
                     "Horizon: {arg} was removed: single player runs on its server thread."
                 ),
                 // Horizon's own commands (/pregen), off by default as on vanilla.
-                "--pregen" => horizon_client::command::vanilla::set_horizon_commands(true),
+                "--pregen" => {
+                    o.pregen = true;
+                    horizon_client::command::vanilla::set_horizon_commands(true);
+                }
                 _ => {
                     let value = args
                         .next()
