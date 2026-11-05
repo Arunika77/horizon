@@ -34,6 +34,19 @@ pub(super) enum Hint {
     CraftPlanks,
     SocialInteractions,
 }
+impl Hint {
+    /// The hint's name, as in its `tutorial.<name>.title` key.
+    fn name(self) -> &'static str {
+        match self {
+            Hint::Move => "move",
+            Hint::Look => "look",
+            Hint::FindTree => "find_tree",
+            Hint::PunchTree => "punch_tree",
+            Hint::OpenInventory => "open_inventory",
+            Hint::CraftPlanks => "craft_planks",
+        }
+    }
+}
 
 /// The observations needed on the first tick of each step.
 #[derive(Default)]
@@ -352,6 +365,9 @@ pub(super) struct HintToast {
     slot: Option<usize>,
     slots: usize,
     slide: horizon_client::toasts::Slide,
+    /// A mod cancelled it (`ToastAddEvent`): it never takes a slot, and
+    /// stays only so the hint isn't offered again while it lasts.
+    cancelled: bool,
 }
 
 impl super::Game<'_> {
@@ -462,6 +478,7 @@ impl super::Game<'_> {
             slot: None,
             slots,
             slide: Default::default(),
+            cancelled: false,
         }
     }
 
@@ -486,12 +503,13 @@ impl super::Game<'_> {
                 .iter()
                 .any(|t| t.wanted && t.hint == hint)
         {
+            let cancelled = !self.toast_allowed("tutorial", hint.name());
             let toast = self.tutorial_toast(hint, progress);
-            self.tutorial_toasts.push(toast);
+            self.tutorial_toasts.push(HintToast { cancelled, ..toast });
         }
         let mut used = self.toast_slots_used();
         for t in &mut self.tutorial_toasts {
-            if t.slot.is_none() && t.wanted && t.slots <= Self::TOAST_SLOTS {
+            if t.slot.is_none() && t.wanted && !t.cancelled && t.slots <= Self::TOAST_SLOTS {
                 let mask = (1u32 << t.slots) - 1;
                 if let Some(slot) =
                     (0..=Self::TOAST_SLOTS - t.slots).find(|s| used & (mask << s) == 0)
