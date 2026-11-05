@@ -818,8 +818,9 @@ impl Game<'_> {
         } else {
             format!("minecraft:{kind}")
         };
-        // Ender Dragons are simulated separately from `Mob` and therefore do
-        // not have a mob-type registry entry for the generic dispenser path.
+        // The Ender Dragon is not a `Mob` entry: it has its own simulation. `getYOffset` would
+        // lift it only when the block in front has a collision shape (a dispenser facing a
+        // solid block); it spawns at that block's floor here.
         if name == "minecraft:ender_dragon" {
             let at = [f64::from(p.0) + 0.5, f64::from(p.1), f64::from(p.2) + 0.5];
             return self.spawn_dragon_spawned(at);
@@ -963,6 +964,7 @@ impl Game<'_> {
     /// After `EntityType.spawn` / `MobBucketItem.spawn`: `mob.playAmbientSound()`.
     fn mob_ambient(&mut self, id: u32) -> Result<()> {
         let Some(i) = self.mobs.iter().position(|m| m.id == id) else {
+            self.dragon_spawn_growl(id);
             return Ok(());
         };
         let mut m = self.mobs.remove(i);
