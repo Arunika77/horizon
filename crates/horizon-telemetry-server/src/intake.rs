@@ -34,10 +34,10 @@ UPDATE hub_queue SET state = 'new' WHERE state = 'filing';
 /// Days the upkeep keeps trying to open a report's issue.
 const RETRY_DAYS: u32 = 7;
 
-/// A field's rules: its name, whether it is needed, its length in characters, whether it may hold lines.
 /// A queued report whose issue isn't open yet: its row id, its kind and its fields.
 pub type Unfiled = (i64, String, Map<String, Value>);
 
+/// A field's rules: its name, whether it is needed, its length in characters, whether it may hold lines.
 struct Field(&'static str, bool, std::ops::RangeInclusive<usize>, bool);
 
 /// A bug report: the `#horizon-bugs` template's fields.
