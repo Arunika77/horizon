@@ -6,6 +6,8 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 646 adds a client-side entity's data changed field by field (`native_client_entity_update`).
+//!
 //! API 645 adds the terrain at columns nobody has loaded (`native_terrain_surface`).<br>
 //! API 644 adds the entities an explosion is about to hurt and push, to spare some (`native_explosion_entities`).<br>
 //! API 643 adds line of sight between two entities (`native_has_line_of_sight`, `LivingEntity.hasLineOfSight`) and a COLLIDER block ray with no entity (`native_clear_between`, `Level.clip` missing) in the level being ticked.<br>
@@ -907,7 +909,7 @@ pub(super) use horizon_world::level::flags;
 
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
-pub(crate) const NATIVE_HOOKS_API: u32 = 645;
+pub(crate) const NATIVE_HOOKS_API: u32 = 646;
 
 impl GameLevel<'_> {
     /// A crop, stem, cactus, sugar cane, bamboo, mushroom or vine on an

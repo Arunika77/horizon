@@ -2306,6 +2306,8 @@ API 644 adds `native_explosion_entities(dimension, center, entities)` (server) r
 
 API 645 adds `native_terrain_surface(dimension, columns)` returns the generator's surface height, top block, water surface and biome at up to 4,096 columns, loaded or not, without creating a chunk. Bundles need "hooks": 645.
 
+API 646 adds `native_client_entity_update(viewer, id, nbt)` changes only the synched data of the keys `nbt` has on a client-side entity (API 519), where `native_client_entity_set` sends every field; a key at its default is sent, and a display's `start_interpolation` goes with it.
+
 ## What the launcher does
 
 **Developing a mod?** Run `horizon-launcher settings native-profile dev` once, or pick "Dev build" in the Mods page's
