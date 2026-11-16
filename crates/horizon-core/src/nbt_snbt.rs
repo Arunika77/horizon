@@ -110,6 +110,14 @@ impl<'a> Parser<'a> {
             suggestions: Vec::new(),
         }
     }
+    /// `ErrorCollector.LongestOnly`: an earlier alternative wins equal cursors.
+    fn earlier_literal(mut error: SnbtError, cursor: usize, literal: &str) -> SnbtError {
+        if error.cursor == cursor {
+            error.key = "argument.literal.incorrect";
+            error.args = vec![literal.to_owned()];
+        }
+        error
+    }
     fn integer_error(
         &self,
         digits: &str,
@@ -262,11 +270,16 @@ impl<'a> Parser<'a> {
             Ok(value)
         }
     }
+    /// `SnbtGrammar.createParser`'s quoted-string / unquoted map-key alternatives.
     fn string(&mut self) -> Result<JavaString, SnbtError> {
         self.skip();
         let Some(quote @ (0x22 | 0x27)) = self.peek() else {
             self.record(self.cursor, &["\"", "'"]);
-            return self.unquoted().map(|value| value.as_str().into());
+            let start = self.cursor;
+            return self
+                .unquoted()
+                .map(|value| value.as_str().into())
+                .map_err(|error| Self::earlier_literal(error, start, "\""));
         };
         self.bump();
         let mut units = Vec::new();
@@ -383,10 +396,11 @@ impl<'a> Parser<'a> {
             }
         }
     }
+    /// `SnbtGrammar.createParser`'s array-prefix / list-entries alternatives.
     fn list(&mut self) -> Result<Tag, SnbtError> {
         self.expect(b'[')?;
-        let start = self.cursor;
         self.skip();
+        let start = self.cursor;
         self.record(self.cursor, &["B", "L", "I"]);
         let typed = match self.peek() {
             Some(0x42) => Some(0),
@@ -407,7 +421,11 @@ impl<'a> Parser<'a> {
                 values.push(if let Some(kind) = typed {
                     self.integer(Some(kind))?
                 } else {
-                    self.value()?
+                    self.value().map_err(|error| {
+                        // The array-prefix alternative is tried before list entries,
+                        // but only at the first entry, not after a separator.
+                        Self::earlier_literal(error, start, "B")
+                    })?
                 });
                 if self.eat(b']') {
                     break;
@@ -547,7 +565,10 @@ impl<'a> Parser<'a> {
             })))
         }
     }
+    /// `SnbtGrammar.createParser`'s integer literal, including its optional sign.
     fn integer(&mut self, array: Option<u8>) -> Result<Tag, SnbtError> {
+        self.skip();
+        let start = self.cursor;
         let minus = self.sign();
         let (mut digits, radix) = if self.eat(b'0') {
             if self.eat(b'x') || self.eat(b'X') {
@@ -571,7 +592,11 @@ impl<'a> Parser<'a> {
                 }
             }
         } else {
-            (self.required_digits(10)?, 10)
+            (
+                self.required_digits(10)
+                    .map_err(|error| Self::earlier_literal(error, start, "+"))?,
+                10,
+            )
         };
         let suffix_start = self.cursor;
         let prefix = self.lower().filter(|c| matches!(c, b'u' | b's'));
@@ -731,6 +756,25 @@ fn push_code_point(units: &mut Vec<u16>, value: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn container_alternatives_report_the_first_failure_at_the_longest_cursor() {
+        // Vanilla SnbtGrammar's map_key, array_prefix and optional sign alternatives.
+        for (source, cursor, literal) in [
+            ("{,}", 1, "\""),
+            ("{a:1b,,}", 6, "\""),
+            ("[,]", 1, "B"),
+            ("[I;,]", 3, "+"),
+        ] {
+            let error = parse_snbt_argument(source).unwrap_err();
+            assert_eq!(error.key, "argument.literal.incorrect", "{source}");
+            assert_eq!(error.cursor, cursor, "{source}");
+            assert_eq!(error.args, [literal], "{source}");
+        }
+        assert_eq!(
+            parse_snbt_argument("[I;+]").unwrap_err().key,
+            "snbt.parser.expected_decimal_numeral"
+        );
+    }
 
     #[test]
     fn full_persistent_grammar_preserves_utf16_and_numeric_types() {
