@@ -203,6 +203,10 @@ jobs:
       - name: Build the official game, horizon-ctl, horizon-prepare and horizon-server
         if: ${{ !matrix.musl }}
         run: cargo build --release --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }} -p horizon-official --bin horizon-official -p horizon-client-lib --bin horizon-ctl -p horizon-prepare --bin horizon-prepare -p horizon-server --bin horizon-server
+      - name: Windows x64 Polytone path regressions
+        if: runner.os == 'Windows' && matrix.pe_arch == 'x64'
+        run: |
+          cargo test --release --locked ${{ matrix.target && format('--target {0}', matrix.target) || '' }} -p horizon-client-render --lib particles::polytone::tests::
       - name: The official game is the game players get, under its name
         # horizon-official: horizon-client's game with Horizon's own parts plugged in (docs/layers.md, "How a
         # Horizon crate plugs in"). Everything below, the launcher and players know it as horizon-client.
