@@ -199,7 +199,7 @@ impl Game<'_> {
     ) -> bool {
         // Resolve the damage registry at the shared command/API boundary before
         // any target-specific path can mutate state or map it to a DamageKind.
-        if self.motion.health.damage.id(ty).is_none() {
+        if self.health_resources.damage.id(ty).is_none() {
             return false;
         }
         let attacker = cause.or(by).and_then(|t| self.network_entity_id(t));
@@ -306,6 +306,19 @@ impl Game<'_> {
                     from,
                     attacker_species,
                 };
+                // `Shulker.hurtServer`: damage tagged `is_projectile` whose direct entity is a shulker
+                // bullet is a hit by one, whatever sent it.
+                let bullet = matches!(by, Some(Target::Projectile(p)) if self
+                    .creatures
+                    .projectiles
+                    .iter()
+                    .any(|q| q.id == p
+                        && matches!(q.kind, horizon_client::projectiles::ProjectileKind::ShulkerBullet { .. })))
+                    && self.health_resources.damage.id(ty).is_some_and(|kind| {
+                        self.health_resources
+                            .damage
+                            .in_tag(kind, "minecraft:is_projectile")
+                    });
                 // DamageSource.getEntity is the causing player, even when
                 // another client issued the command or supplied the direct entity.
                 let guest = match cause.or(by) {
@@ -316,7 +329,7 @@ impl Game<'_> {
                     let attack = self.current_attack();
                     let hurt = self
                         .as_guest(conn, |g| {
-                            g.with_attack(attack, |g| g.command_damage_mob(id, amount, damage))
+                            g.with_attack(attack, |g| g.command_damage_mob(id, amount, damage, bullet))
                         })
                         .unwrap_or(false);
                     if hurt && let Some(host) = self.lan.as_mut() {
@@ -324,7 +337,7 @@ impl Game<'_> {
                     }
                     hurt
                 } else {
-                    self.command_damage_mob(id, amount, damage)
+                    self.command_damage_mob(id, amount, damage, bullet)
                 }
             }
             Target::Item(id) => self.hurt_item_entity(id, amount, ty, by, cause.or(by), from),
@@ -435,7 +448,8 @@ impl Game<'_> {
     /// `DamageCommand.damage`: retain the accepted hit's player context and run
     /// `Zombie.hurtServer`'s reinforcement requests before the command returns.
     /// Health-changing hits also raise their damage vibration before return.
-    fn command_damage_mob(&mut self, id: u32, amount: f32, damage: Damage) -> bool {
+    /// `by_shulker_bullet` triggers a shulker's projectile response on an accepted hit.
+    fn command_damage_mob(&mut self, id: u32, amount: f32, damage: Damage, by_shulker_bullet: bool) -> bool {
         let attack = self.combat.attack();
         let mut reinforcements = Vec::new();
         let mut health_changed = false;
@@ -448,6 +462,9 @@ impl Game<'_> {
                 damage,
             );
             health_changed = hurt && m.health != old_health;
+            if hurt && by_shulker_bullet {
+                horizon_client::mobs::shulker::hit_by_bullet(m);
+            }
             if hurt {
                 reinforcements = take_new_reinforcements(&mut m.outbox, queued);
             }
@@ -2110,7 +2127,7 @@ mod allay_owner_damage_tests {
                     } else {
                         // The command entry point lends its resolved attacker to the damage path.
                         let attack = game.attack_of_who(source.attacker);
-                        game.with_attack(attack, |g| g.command_damage_mob(1, 2.0, source))
+                        game.with_attack(attack, |g| g.command_damage_mob(1, 2.0, source, false))
                     };
                     let expected = liked != Some(actual);
                     assert_eq!(accepted, expected, "melee={melee}, liked={liked:?}");
