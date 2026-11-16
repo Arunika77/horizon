@@ -167,10 +167,15 @@ class UntrustedBuildTests(unittest.TestCase):
 
     def test_an_untrusted_build_never_runs_on_the_release_runner(self):
         runs_on = [line for line in self.game.splitlines() if "runs-on:" in line]
-        self.assertEqual(len(runs_on), 2)
+        self.assertEqual(len(runs_on), 3)
+        # The host-independent wasm member is built on a credential-free hosted Linux runner.
+        hosted = [line for line in runs_on if line.strip() == "runs-on: ubuntu-22.04"]
+        self.assertEqual(len(hosted), 1)
         # The nightly's own runner: never the release runner, and never behind pull requests' parity queue.
         nightly_runner = "fromJSON('[\"self-hosted\", \"macOS\", \"horizon-nightly\"]')"
         for line in runs_on:
+            if line in hosted:
+                continue
             self.assertIn(f"inputs.trusted && vars.MAC_RUNNER || {nightly_runner}", line)
 
     def test_a_trusted_build_never_reads_the_shared_sccache(self):
