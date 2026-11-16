@@ -261,6 +261,47 @@ mod error_tests {
     }
 
     #[test]
+    fn numeric_alternatives_keep_the_first_error_at_the_longest_cursor() {
+        // SnbtGrammar commits to hex digits after x/X. The later word branch
+        // still participates, but its '(' failure only wins a longer cursor.
+        for (text, key, args, cursor) in [
+            ("{a:0x}", "snbt.parser.expected_hex_numeral", &[][..], 5),
+            ("{a:0X}", "snbt.parser.expected_hex_numeral", &[][..], 5),
+            ("{a:+0x}", "snbt.parser.expected_hex_numeral", &[][..], 6),
+            ("{a:-0X}", "snbt.parser.expected_hex_numeral", &[][..], 6),
+            ("{a:0 X }", "snbt.parser.expected_hex_numeral", &[][..], 7),
+            ("{a:0x  }", "snbt.parser.expected_hex_numeral", &[][..], 7),
+            ("{a:[I;0x]}", "snbt.parser.expected_hex_numeral", &[][..], 8),
+            ("{a:0xg}", "argument.literal.incorrect", &["("][..], 6),
+            ("{a:--1}", "argument.literal.incorrect", &["("][..], 6),
+        ] {
+            for prefix in ["", "data merge entity @s ", "data merge block 0 64 0 "] {
+                for suffix in ["", " x"] {
+                    let input = format!("{prefix}{text}{suffix}");
+                    let mut reader = Reader::new(&input);
+                    reader.cursor = prefix.len();
+                    let error = parse_compound_argument(&mut reader).unwrap_err();
+                    let mut at = Reader::new(&input);
+                    at.cursor = prefix.len() + cursor;
+                    let args: Vec<&dyn Display> =
+                        args.iter().map(|arg| arg as &dyn Display).collect();
+                    assert_eq!(error, CommandError::tr_at(key, &args, &at), "{input}");
+                    assert_eq!(reader.cursor, at.cursor, "{input}");
+                }
+            }
+        }
+        // Unlike x/X, b/B does not cut: a missing binary numeral may instead
+        // leave a decimal zero with a byte suffix.
+        for text in ["{a:0b}", "{a:0B}", "{a:+0b}", "{a:-0B}"] {
+            assert_eq!(
+                parse_fully(text).unwrap(),
+                Tag::compound([("a", Tag::Byte(0))]),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
     fn string_escape_errors_keep_their_key_and_cursor() {
         // An unknown escape fails as the first escape literal, at the letter.
         assert_fails("{v:'\\q'}", "argument.literal.incorrect", &["b"], 5);

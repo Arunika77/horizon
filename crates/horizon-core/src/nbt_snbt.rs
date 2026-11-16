@@ -117,16 +117,7 @@ impl<'a> Parser<'a> {
     fn parse(mut self) -> Result<(Tag, usize), SnbtError> {
         match self.value() {
             Ok(value) => Ok((value, self.cursor)),
-            Err(mut error) => {
-                if let Some((cursor, literal)) = self.expected
-                    && cursor >= error.cursor
-                {
-                    error.cursor = cursor;
-                    error.key = "argument.literal.incorrect";
-                    error.args = vec![literal.to_owned()];
-                }
-                Err(error)
-            }
+            Err(error) => Err(self.select_error(error)),
         }
     }
     fn error(&self, key: &'static str) -> SnbtError {
@@ -136,6 +127,17 @@ impl<'a> Parser<'a> {
             cursor: self.cursor,
             suggestions: Vec::new(),
         }
+    }
+    /// `Grammar.parseForCommands`: the first error at the longest cursor wins.
+    fn select_error(&mut self, mut error: SnbtError) -> SnbtError {
+        if let Some((cursor, literal)) = self.expected.take()
+            && cursor >= error.cursor
+        {
+            error.cursor = cursor;
+            error.key = "argument.literal.incorrect";
+            error.args = vec![literal.to_owned()];
+        }
+        error
     }
     /// `ErrorCollector.LongestOnly`: an earlier alternative wins equal cursors.
     fn earlier_literal(mut error: SnbtError, cursor: usize, literal: &str) -> SnbtError {
@@ -292,11 +294,21 @@ impl<'a> Parser<'a> {
                         {
                             error = earlier;
                         }
+                        // Finish the numeric alternative before trying the word.
+                        // Its failure precedes the word's optional '(' terminal,
+                        // so a committed numeral failure wins an equal cursor.
+                        let error = self.select_error(error);
                         self.cursor = start;
                         match self.word() {
                             Ok(value) => Ok(value),
-                            Err(later) if later.cursor > error.cursor => Err(later),
-                            Err(_) => Err(error),
+                            Err(later) => {
+                                let later = self.select_error(later);
+                                Err(if later.cursor > error.cursor {
+                                    later
+                                } else {
+                                    error
+                                })
+                            }
                         }
                     }
                 }
