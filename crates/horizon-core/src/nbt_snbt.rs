@@ -1,4 +1,6 @@
 //! `SnbtGrammar`/`TagParser` over NbtOps, shared by commands and persistent codecs.
+//! Backtracked optional terminals retain their errors/completions at the longest
+//! cursor, even when the branch containing them produces a value successfully.
 use super::{Compound, JavaString, Tag};
 
 /// A grammar failure, with an input-relative cursor and its completion suppliers.
@@ -79,6 +81,16 @@ pub fn snbt_whitespace(value: u32) -> bool {
         | 0x2008..=0x200a | 0x2028..=0x2029 | 0x205f | 0x3000)
 }
 
+/// `SnbtGrammar.IntegerLiteral`: conversion follows a successful grammar match,
+/// so a range/conversion error must not retry the unquoted-string alternative.
+struct IntegerLiteral {
+    minus: bool,
+    digits: String,
+    radix: u32,
+    signed: Option<bool>,
+    kind: Option<u8>,
+}
+
 struct Parser<'a> {
     input: Input<'a>,
     cursor: usize,
@@ -86,6 +98,9 @@ struct Parser<'a> {
     collect_suggestions: bool,
     suggestion_cursor: usize,
     suggestions: Vec<String>,
+    // Optional/backtracked terminals still participate in LongestOnly errors.
+    // Keep their static spelling without allocating on successful parses.
+    expected: Option<(usize, &'static str)>,
 }
 impl<'a> Parser<'a> {
     fn new(input: Input<'a>) -> Self {
@@ -96,11 +111,23 @@ impl<'a> Parser<'a> {
             collect_suggestions: false,
             suggestion_cursor: 0,
             suggestions: Vec::new(),
+            expected: None,
         }
     }
     fn parse(mut self) -> Result<(Tag, usize), SnbtError> {
-        let value = self.value()?;
-        Ok((value, self.cursor))
+        match self.value() {
+            Ok(value) => Ok((value, self.cursor)),
+            Err(mut error) => {
+                if let Some((cursor, literal)) = self.expected
+                    && cursor >= error.cursor
+                {
+                    error.cursor = cursor;
+                    error.key = "argument.literal.incorrect";
+                    error.args = vec![literal.to_owned()];
+                }
+                Err(error)
+            }
+        }
     }
     fn error(&self, key: &'static str) -> SnbtError {
         SnbtError {
@@ -117,6 +144,11 @@ impl<'a> Parser<'a> {
             error.args = vec![literal.to_owned()];
         }
         error
+    }
+    fn expect_at(&mut self, cursor: usize, literal: &'static str) {
+        if self.expected.is_none_or(|(previous, _)| cursor > previous) {
+            self.expected = Some((cursor, literal));
+        }
     }
     fn integer_error(
         &self,
@@ -245,10 +277,28 @@ impl<'a> Parser<'a> {
             }
             Some(0x22 | 0x27) => self.string().map(Tag::String),
             Some(0x2b | 0x2d | 0x2e | 0x30..=0x39) => {
-                if let Some(value) = self.float()? {
-                    Ok(value)
-                } else {
-                    self.integer(None)
+                let start = self.cursor;
+                let float_error = match self.float() {
+                    Ok(Some(value)) => return Ok(value),
+                    Ok(None) => None,
+                    Err(error) => Some(error),
+                };
+                self.cursor = start;
+                match self.integer_literal() {
+                    Ok(literal) => self.create_integer(literal, None),
+                    Err(mut error) => {
+                        if let Some(earlier) = float_error
+                            && earlier.cursor >= error.cursor
+                        {
+                            error = earlier;
+                        }
+                        self.cursor = start;
+                        match self.word() {
+                            Ok(value) => Ok(value),
+                            Err(later) if later.cursor > error.cursor => Err(later),
+                            Err(_) => Err(error),
+                        }
+                    }
                 }
             }
             _ => self.word(),
@@ -382,11 +432,12 @@ impl<'a> Parser<'a> {
         }
         loop {
             let key = self.string()?;
+            self.expect(b':')?;
+            let value = self.value()?;
             if key.0.is_empty() {
                 return Err(self.error("snbt.parser.empty_key"));
             }
-            self.expect(b':')?;
-            values.insert(key, self.value()?);
+            values.insert(key, value);
             if self.eat(b'}') {
                 return Ok(Tag::Compound(values));
             }
@@ -489,6 +540,10 @@ impl<'a> Parser<'a> {
     }
     fn exponent(&mut self, text: &mut String) -> Result<bool, SnbtError> {
         if !self.eat(b'e') && !self.eat(b'E') {
+            let start = self.cursor;
+            self.skip();
+            self.expect_at(self.cursor, "e|E");
+            self.cursor = start;
             return Ok(false);
         }
         text.push('e');
@@ -510,6 +565,12 @@ impl<'a> Parser<'a> {
             text.push_str(whole);
         }
         let dot = self.eat(b'.');
+        if !dot {
+            let before_space = self.cursor;
+            self.skip();
+            self.expect_at(self.cursor, ".");
+            self.cursor = before_space;
+        }
         if dot {
             text.push('.');
             match self.digits(10)? {
@@ -528,6 +589,7 @@ impl<'a> Parser<'a> {
         let suffix = self.lower().filter(|suffix| matches!(suffix, b'f' | b'd'));
         if suffix.is_none() {
             self.record(self.cursor, &["f", "F", "d", "D"]);
+            self.expect_at(self.cursor, "f|F");
         }
         if suffix.is_some() {
             self.bump();
@@ -565,12 +627,16 @@ impl<'a> Parser<'a> {
             })))
         }
     }
-    /// `SnbtGrammar.createParser`'s integer literal, including its optional sign.
     fn integer(&mut self, array: Option<u8>) -> Result<Tag, SnbtError> {
+        let literal = self.integer_literal()?;
+        self.create_integer(literal, array)
+    }
+    /// `SnbtGrammar.createParser`'s integer literal, including its optional sign.
+    fn integer_literal(&mut self) -> Result<IntegerLiteral, SnbtError> {
         self.skip();
         let start = self.cursor;
         let minus = self.sign();
-        let (mut digits, radix) = if self.eat(b'0') {
+        let (digits, radix) = if self.eat(b'0') {
             if self.eat(b'x') || self.eat(b'X') {
                 (self.required_digits(16)?, 16)
             } else {
@@ -602,6 +668,7 @@ impl<'a> Parser<'a> {
         let prefix = self.lower().filter(|c| matches!(c, b'u' | b's'));
         if prefix.is_none() {
             self.record(self.cursor, &["u", "U", "s", "S"]);
+            self.expect_at(self.cursor, "u|U");
             self.cursor = suffix_start;
         }
         let mut signed = None;
@@ -611,6 +678,8 @@ impl<'a> Parser<'a> {
             if ty.is_some_and(|ty| matches!(ty, b'b' | b's' | b'i' | b'l')) {
                 signed = Some(prefix == b's');
             } else {
+                self.record(self.cursor, &["b", "B", "s", "S", "i", "I", "l", "L"]);
+                self.expect_at(self.cursor, "b|B");
                 self.cursor = suffix_start;
             }
         }
@@ -624,12 +693,30 @@ impl<'a> Parser<'a> {
         };
         if kind.is_none() {
             self.record(self.cursor, &["b", "B", "s", "S", "i", "I", "l", "L"]);
+            self.expect_at(self.cursor, "b|B");
         }
         if kind.is_some() {
             self.bump();
         } else {
             self.cursor = suffix_cursor;
         }
+        Ok(IntegerLiteral {
+            minus,
+            digits,
+            radix,
+            signed,
+            kind,
+        })
+    }
+    /// `SnbtGrammar.IntegerLiteral.create`: semantic errors do not backtrack.
+    fn create_integer(&self, literal: IntegerLiteral, array: Option<u8>) -> Result<Tag, SnbtError> {
+        let IntegerLiteral {
+            minus,
+            mut digits,
+            radix,
+            signed,
+            kind,
+        } = literal;
         let kind = kind.unwrap_or(array.unwrap_or(2));
         if array.is_some_and(|array| kind > array) {
             return Err(self.error("snbt.parser.invalid_array_element_type"));
@@ -673,6 +760,10 @@ impl<'a> Parser<'a> {
             self.depth -= 1;
             return result;
         }
+        let before_space = self.cursor;
+        self.skip();
+        self.expect_at(self.cursor, "(");
+        self.cursor = before_space;
         if word.eq_ignore_ascii_case("true") {
             Ok(Tag::Byte(1))
         } else if word.eq_ignore_ascii_case("false") {
@@ -764,6 +855,13 @@ mod tests {
             ("{a:1b,,}", 6, "\""),
             ("[,]", 1, "B"),
             ("[I;,]", 3, "+"),
+            ("{a:x", 4, "("),
+            ("[1", 2, "."),
+            ("{a:99999999999}", 14, "."),
+            ("{a:[I;1.5]}", 7, "u|U"),
+            ("{\"\":1}", 5, "."),
+            ("{a:1.2.3}", 6, "e|E"),
+            ("{a:--1}", 6, "("),
         ] {
             let error = parse_snbt_argument(source).unwrap_err();
             assert_eq!(error.key, "argument.literal.incorrect", "{source}");

@@ -219,6 +219,16 @@ mod suggestion_tests {
         assert_eq!(suggestions("{a"), [":"]);
         assert_eq!(suggestions("[1,"), ["]"]);
         assert_eq!(suggestions("{\"a"), ["\"", "'", "\\"]);
+        let mut builder = SuggestionsBuilder::new("1s", 0);
+        suggest(&mut builder);
+        assert!(builder.out.iter().all(|suggestion| suggestion.range == (2, 2)));
+        let (_, list) = crate::merge_suggestions("1s", builder.out);
+        assert_eq!(
+            list.iter()
+                .map(|suggestion| suggestion.text.as_str())
+                .collect::<Vec<_>>(),
+            ["b", "B", "i", "I", "l", "L", "s", "S"]
+        );
     }
 
     /// Candidates must match the text typed at that position: nothing continues `\q`.
