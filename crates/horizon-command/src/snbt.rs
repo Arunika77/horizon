@@ -221,7 +221,12 @@ mod suggestion_tests {
         assert_eq!(suggestions("{\"a"), ["\"", "'", "\\"]);
         let mut builder = SuggestionsBuilder::new("1s", 0);
         suggest(&mut builder);
-        assert!(builder.out.iter().all(|suggestion| suggestion.range == (2, 2)));
+        assert!(
+            builder
+                .out
+                .iter()
+                .all(|suggestion| suggestion.range == (2, 2))
+        );
         let (_, list) = crate::merge_suggestions("1s", builder.out);
         assert_eq!(
             list.iter()
