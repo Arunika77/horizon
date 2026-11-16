@@ -1564,10 +1564,9 @@ fn a_greedy_custom_argument_takes_the_rest_of_the_line() {
 }
 
 #[test]
-fn an_ask_server_node_replies_with_the_token_range_when_it_has_no_suggestion_of_its_own() {
-    // The free `id` node: vanilla's identifier parser with `minecraft:ask_server`. It computes
-    // nothing locally, so the range the server sends must still be the token being typed: the
-    // completions a mod adds in `tab_complete` are applied there, not at the start of the line.
+fn empty_completions_do_not_claim_the_native_extension_replacement_range() {
+    // Brigadier's empty result and a native extension's replacement token are
+    // independent: adding a completion must not change every empty result.
     let mut dispatcher = Dispatcher::new();
     let probe = dispatcher.literal(0, "probe");
     let value = dispatcher.argument(probe, "value", ArgType::Identifier);
@@ -1578,11 +1577,16 @@ fn an_ask_server_node_replies_with_the_token_range_when_it_has_no_suggestion_of_
     let (range, list, ask) = dispatcher.client_suggestions_asking(&parse, typed.len(), &registries);
     assert!(ask, "the client asks the server for this node");
     assert!(list.is_empty(), "the identifier itself suggests nothing");
-    assert_eq!(range, (6, typed.len()), "the token, never (0, 0)");
-    // The server answers the same way; its dispatcher has no provider to ask, only its mods.
+    assert_eq!(range, (0, 0));
     let (range, list) = dispatcher.suggestions(&parse, typed.len(), &registries);
     assert!(list.is_empty());
+    assert_eq!(range, (0, 0));
+    let (_, token_start, _) = parse.context.suggestion_context(typed.len());
+    let mut builder = SuggestionsBuilder::new(typed, token_start);
+    builder.suggest("stone");
+    let (range, list) = merge_suggestions(typed, builder.out);
     assert_eq!(range, (6, typed.len()));
+    assert_eq!(list[0].apply(typed), "probe stone");
 }
 
 #[test]

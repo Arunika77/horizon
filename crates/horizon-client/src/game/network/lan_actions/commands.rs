@@ -311,8 +311,18 @@ impl Game<'_> {
         // Commands.sendCommands prunes the tree a player's client completes from; the answer the
         // server sends follows the same test, so a child literal of a path the sender may not run
         // is not offered either (Bukkit hides it; brigadier alone lists every child).
-        let ((start, end), mut suggestions) =
+        let (range, mut suggestions) =
             d.client_suggestions(&parse, command.len(), &self.ui.registries);
+        // Brigadier's empty result has no replacement range. Native listeners
+        // still complete the parsed token, including an identifier with no
+        // built-in provider; this byte range belongs to the event, not the
+        // empty dispatcher result.
+        let (start, end) = if suggestions.is_empty() {
+            let (_, start, _) = parse.context.suggestion_context(command.len());
+            (start.min(command.len()), command.len())
+        } else {
+            range
+        };
         self.native_tab_complete(
             player_uuid,
             &player_name,
@@ -320,6 +330,10 @@ impl Game<'_> {
             [start, end],
             &mut suggestions,
         );
+        // Listener additions can use their own ranges. Re-expand, deduplicate
+        // and sort the final list, including restoring (0, 0) if it is empty.
+        let ((start, end), mut suggestions) =
+            horizon_client::command::merge_suggestions(command, suggestions);
         let reg = self.suggestion_registries();
         reg.permission = level;
         reg.sender = own_sender;
@@ -332,9 +346,11 @@ impl Game<'_> {
         // ServerCommandSuggestionsProvider.limitSuggestionCount.
         suggestions.truncate(1000);
         let utf16 = |byte: usize| command[..byte.min(command.len())].encode_utf16().count() as i32;
+        // Empty suggestions use Brigadier's sentinel, not a span in the input.
+        let slash_offset = if suggestions.is_empty() { 0 } else { skip as i32 };
         let mut w = horizon_protocol::buf::Writer::new();
         w.varint(id);
-        w.varint(utf16(start) + skip as i32);
+        w.varint(utf16(start) + slash_offset);
         w.varint(utf16(end) - utf16(start));
         w.varint(suggestions.len() as i32);
         for s in &suggestions {

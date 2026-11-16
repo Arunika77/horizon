@@ -654,12 +654,16 @@ pub fn merge_suggestions(input: &str, list: Vec<Suggestion>) -> (Range, Vec<Sugg
         std::collections::HashSet::new();
     for s in list {
         // Brigadier's suggestion expand: pad the text with the input around it.
-        let text = format!(
-            "{}{}{}",
-            &input[start..s.range.0],
-            s.text,
-            &input[s.range.1..end]
-        );
+        let text = if s.range == (start, end) {
+            s.text
+        } else {
+            format!(
+                "{}{}{}",
+                &input[start..s.range.0],
+                s.text,
+                &input[s.range.1..end]
+            )
+        };
         // Padding grows the text past what the suggestion itself holds: a long prefix, and a
         // suggestion starting later, expand to the whole merged range. Each one was within the
         // packet's limit alone, so the expanded text is measured again and the ones that no
@@ -1141,8 +1145,10 @@ impl Dispatcher {
         let context = Context::new(0, start);
         self.parse_nodes(0, input, start, &context, reg, reg.permission, 0)
     }
-    /// Brigadier's completion suggestions at `cursor`: it
-    /// lists every child, whatever its requirement.
+    /// Brigadier's completion suggestions at byte `cursor`: it lists every
+    /// child, whatever its requirement. An empty result has range `(0, 0)`;
+    /// consumers adding completions must obtain their replacement range from
+    /// [`Context::suggestion_context`], not from the empty result.
     pub fn suggestions(
         &self,
         parse: &ParseResults,
@@ -1207,16 +1213,6 @@ impl Dispatcher {
             all.extend(builder.out);
         }
         let (range, list) = merge_suggestions(truncated, all);
-        // The reply's range is the builder's, covering the token being typed, even when nothing
-        // is suggested locally: a node that asks the server (`ask_server`, and the mods' own
-        // `tab_complete` answers for the free `id`) brings its completions with the server's
-        // reply, which the chat applies to that token. The empty list's `(0, 0)` would paste
-        // what the server adds at the start of the line.
-        let range = if list.is_empty() {
-            (start, truncated.len())
-        } else {
-            range
-        };
         (range, list, ask)
     }
     fn smart_usage_of(&self, node: usize, optional: bool, deep: bool, level: u8) -> Option<String> {
