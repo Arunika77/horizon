@@ -713,3 +713,29 @@ fn finish_hit_uses_registered_guest_context_and_restores_the_host() {
         );
     });
 }
+/// `Projectile.addAdditionalSaveData` writes the owner reference of any projectile: a bullet a
+/// mob shot (its owner a `Who`, no loaded reference) saves its shooter's UUID.
+#[test]
+#[ignore = "prepared resources; actual registered mob and projectile save"]
+fn a_bullet_a_mob_shot_saves_its_owner() {
+    with_game(|game| {
+        let shooter = owner(game);
+        let mut bullet = Projectile::new(
+            ProjectileKind::ShulkerBullet {
+                target: None,
+                dir: None,
+                steps: 0,
+                delta: [0.0; 3],
+                seed: 1,
+            },
+            Vec3::new(6.5, 201.5, 6.5),
+            Some(Who::Mob(shooter)),
+        );
+        bullet.velocity = Vec3::ZERO;
+        game.creatures.projectiles.push(bullet);
+        let index = game.creatures.projectiles.len() - 1;
+        assert_eq!(game.projectile_owner_uuid(index), Some([114, 0, 0, 99]));
+        game.creatures.projectiles[index].owner_uuid = Some([5, 6, 7, 8]);
+        assert_eq!(game.projectile_owner_uuid(index), Some([5, 6, 7, 8]));
+    });
+}
