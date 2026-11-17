@@ -1735,7 +1735,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "measure"]
+    #[ignore = "daily"]
     fn crowd_cost() {
         let var = |name: &str, default: u32| {
             std::env::var(name)
