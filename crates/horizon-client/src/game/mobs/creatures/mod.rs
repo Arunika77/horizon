@@ -13239,7 +13239,7 @@ mod loaded_arrow_shot_tests {
             game.creatures.projectiles.push(bullet);
             let index = game.creatures.projectiles.len() - 1;
             assert_eq!(game.projectile_owner_uuid(index), Some([114, 0, 0, 99]));
-            game.creatures.projectiles[index].owner_uuid = Some([5, 6, 7, 8]);
+            game.creatures.projectiles.update(index, |p| p.owner_uuid = Some([5, 6, 7, 8]));
             assert_eq!(game.projectile_owner_uuid(index), Some([5, 6, 7, 8]));
         });
     }
