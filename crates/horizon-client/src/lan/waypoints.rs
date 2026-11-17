@@ -11,10 +11,10 @@
 //! `LivingEntity.onAttributeUpdated` does; joining or leaving a team remakes the
 //! connections with the team's colour (`ServerScoreboard.updatePlayerWaypoint`).
 use crate::fast_hash::FxHashMap as HashMap;
-use std::sync::{Arc, OnceLock};
 use horizon_protocol::packets::play::{
     Clientbound as C, TrackedWaypoint, WaypointId, WaypointTarget, waypoint_operation,
 };
+use std::sync::{Arc, OnceLock};
 
 /// A waypoint packet encoded once, for every receiver it goes to.
 pub struct Encoded {
@@ -993,7 +993,10 @@ impl Waypoints {
                         // `updateWaypoint`: this receiver's connection to the mover.
                         if job.listed && m.ticked && m.transmits {
                             // Most movers stay in their block: nothing to send or remake.
-                            if !me.as_ref().is_some_and(|me| Shared::quiet(to.row, &m.source, me)) {
+                            if !me
+                                .as_ref()
+                                .is_some_and(|me| Shared::quiet(to.row, &m.source, me))
+                            {
                                 s.update_or_create(&mut to, m.uuid);
                             }
                         }
@@ -1303,7 +1306,10 @@ mod tests {
                 let a = serial.tick_with(&players, &[], &respawned, rule, usize::MAX);
                 let b = by_receiver.tick_with(&players, &[], &respawned, rule, 0);
                 sent += a.len();
-                shared += b.iter().filter(|(_, p)| matches!(p, Sent::Shared(_))).count();
+                shared += b
+                    .iter()
+                    .filter(|(_, p)| matches!(p, Sent::Shared(_)))
+                    .count();
                 assert_eq!(by_conn(&a), by_conn(&b), "level {level}, tick {tick}");
             }
         }
@@ -1335,7 +1341,11 @@ mod tests {
             x[i] = rnd() * 6.0;
             y[i] = -36.0;
             z[i] = rnd() * 6.0;
-            last[i] = [x[i].floor() as i32, y[i].floor() as i32, z[i].floor() as i32];
+            last[i] = [
+                x[i].floor() as i32,
+                y[i].floor() as i32,
+                z[i].floor() as i32,
+            ];
         }
         let range2 = PLAYER_RANGE * PLAYER_RANGE;
         let ticks = 2_000;
@@ -1346,7 +1356,11 @@ mod tests {
                 x[i] += 0.2 * (((t + i) % 7) as f64 / 7.0);
             }
             for m in 0..n {
-                let b = [x[m].floor() as i32, y[m].floor() as i32, z[m].floor() as i32];
+                let b = [
+                    x[m].floor() as i32,
+                    y[m].floor() as i32,
+                    z[m].floor() as i32,
+                ];
                 for r in 0..n {
                     if r == m {
                         continue;
