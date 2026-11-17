@@ -1325,7 +1325,7 @@ mod tests {
     /// (`ignores`). Run with `cargo test --release ... flat_pair_floor -- --ignored --nocapture`
     /// under `perf stat -e instructions:u`: the prototype's cost per ordered pair.
     #[test]
-    #[ignore = "measure"]
+    #[ignore = "daily"]
     fn flat_pair_floor() {
         let n = 200usize;
         let mut seed = 12345u64;
