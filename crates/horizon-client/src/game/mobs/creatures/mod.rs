@@ -13220,7 +13220,7 @@ mod loaded_arrow_shot_tests {
     /// `Projectile.addAdditionalSaveData` writes the owner reference of any projectile: a bullet a
     /// mob shot (its owner a `Who`, no loaded reference) saves its shooter's UUID.
     #[test]
-    #[ignore = "prepared resources; actual registered mob and projectile save"]
+    #[ignore = "daily"]
     fn a_bullet_a_mob_shot_saves_its_owner() {
         with_game(|game| {
             let shooter = owner(game);
