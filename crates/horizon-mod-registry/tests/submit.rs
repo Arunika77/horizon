@@ -1081,7 +1081,10 @@ async fn native_sdk_packages_stage_as_hmod_and_always_need_review() {
     let old = published_with_ids("alice", false, &[ALICE_ID])
         .replace("kind = \"mod\"", "kind = \"native-mod\"")
         .replace(&"0".repeat(64), &old_sha);
-    mock.lock().unwrap().main.insert("mods/coords_hud.toml".into(), old);
+    mock.lock()
+        .unwrap()
+        .main
+        .insert("mods/coords_hud.toml".into(), old);
     let csrf = client.sign_in().await;
     client.images.clear();
     let mut native = form();
@@ -1095,10 +1098,22 @@ async fn native_sdk_packages_stage_as_hmod_and_always_need_review() {
     let m = mock.lock().unwrap();
     assert_eq!(m.assets, [(format!("{sha}.hmod"), file.len())]);
     assert!(m.labels.is_empty());
-    assert!(!m.pulls[0]["body"].as_str().unwrap().contains("owner-update"));
-    let text = &m.commits[&("submit/coords_hud-0.1.0".into(), "mods/coords_hud.toml".into())].0;
+    assert!(
+        !m.pulls[0]["body"]
+            .as_str()
+            .unwrap()
+            .contains("owner-update")
+    );
+    let text = &m.commits[&(
+        "submit/coords_hud-0.1.0".into(),
+        "mods/coords_hud.toml".into(),
+    )]
+        .0;
     let entry: Entry = toml::from_str(text).unwrap();
-    assert_eq!(entry.kind, horizon_platform::mod_package::index::Kind::NativeMod);
+    assert_eq!(
+        entry.kind,
+        horizon_platform::mod_package::index::Kind::NativeMod
+    );
     assert_eq!(entry.versions[0].file, "coords_hud-0.1.0.hmod");
 }
 
@@ -1116,7 +1131,12 @@ async fn archived_project_ids_cannot_be_reclaimed_through_the_form() {
     native["signature"] = Value::Null;
     let (status, json) = client.submit(&csrf, &native, &hmod("0.1.0")).await;
     assert_eq!(status, StatusCode::CONFLICT, "{json}");
-    assert!(json["error"].as_str().unwrap().contains("frozen native-v1 archive"));
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("frozen native-v1 archive")
+    );
     let m = mock.lock().unwrap();
     assert!(m.assets.is_empty());
     assert!(m.pulls.is_empty());
@@ -1127,7 +1147,11 @@ fn wasm_hmod(correct_hash: bool) -> Vec<u8> {
     use sha2::Digest;
     use std::io::Write;
     let module = b"\0asm\x01\0\0\0\0\x0f\x08dylink.0\x01\x04\0\0\0\0\x01\x04\x01\x60\0\0\x03\x04\x03\0\0\0\x07\x2e\x03\x0ehorizon_layout\0\0\x0ahorizon_in\0\x01\x0chorizon_hook\0\x02\x0a\x0a\x03\x02\0\x0b\x02\0\x0b\x02\0\x0b";
-    let hashed = if correct_hash { module.as_slice() } else { b"changed" };
+    let hashed = if correct_hash {
+        module.as_slice()
+    } else {
+        b"changed"
+    };
     let hash = format!("{:x}", sha2::Sha512::digest(hashed));
     let manifest = format!(
         "id='coords_hud'\nname='Coordinates'\nversion='0.1.0'\napi='0.2'\nside='client'\ncapabilities=['registries']\n[wasm]\nsha512='{hash}'\ntoolchain='1.99.1'\n"
@@ -1154,7 +1178,11 @@ async fn wasm_packages_stage_as_mod_and_bad_module_hashes_are_refused() {
             assert_eq!(status, StatusCode::OK, "{json}");
             let m = mock.lock().unwrap();
             assert!(m.assets[0].0.ends_with(".hmod"));
-            let text = &m.commits[&("submit/coords_hud-0.1.0".into(), "mods/coords_hud.toml".into())].0;
+            let text = &m.commits[&(
+                "submit/coords_hud-0.1.0".into(),
+                "mods/coords_hud.toml".into(),
+            )]
+                .0;
             let entry: Entry = toml::from_str(text).unwrap();
             assert_eq!(entry.kind, horizon_platform::mod_package::index::Kind::Mod);
         } else {
