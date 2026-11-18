@@ -1142,7 +1142,7 @@ async fn archived_project_ids_cannot_be_reclaimed_through_the_form() {
     assert!(m.pulls.is_empty());
 }
 
-/// Test-only shared wasm member with all guest exports; no new catalogue kind.
+/// Test-only, source-free shared wasm member with all guest exports; no new catalogue kind.
 fn wasm_hmod(correct_hash: bool) -> Vec<u8> {
     use sha2::Digest;
     use std::io::Write;
@@ -1154,7 +1154,7 @@ fn wasm_hmod(correct_hash: bool) -> Vec<u8> {
     };
     let hash = format!("{:x}", sha2::Sha512::digest(hashed));
     let manifest = format!(
-        "id='coords_hud'\nname='Coordinates'\nversion='0.1.0'\napi='0.2'\nside='client'\ncapabilities=['registries']\n[wasm]\nsha512='{hash}'\ntoolchain='1.99.1'\n"
+        "id='coords_hud'\nname='Coordinates'\nversion='0.1.0'\napi='0.2'\nside='client'\ncapabilities=['registries']\n[wasm]\nsha512='{hash}'\ntoolchain='1.99.1'\nbuilt_with='test'\n"
     );
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default();
