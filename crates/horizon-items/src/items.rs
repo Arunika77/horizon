@@ -1587,7 +1587,10 @@ impl Items {
     }
     /// `Block.getDrops`: the block's loot table rolled with `roll`, drawing
     /// from the table's random sequence when it has one (`sequences`: the
-    /// world's sequences and seed), else from `random`.
+    /// world's sequences and seed), else from `random`. The results come
+    /// before `LootTable.createStackSplitter`, one per result, so a caller can
+    /// copy the block entity's components onto each first; then it splits
+    /// them with [`Self::split_stacks`].
     pub fn block_drops(
         &self,
         registry: &BlockRegistry,
@@ -1600,16 +1603,22 @@ impl Items {
         if !drops.iter().any(|d| d.item.starts_with(DYNAMIC)) {
             return drops;
         }
-        // `LootParams.withDynamicDrop`'s stacks reach the output through the same splitter.
-        let mut out = Vec::with_capacity(drops.len());
-        for d in drops {
-            if d.item.starts_with(DYNAMIC) {
-                for stack in roll.dynamic {
-                    split_stack(self, stack.clone(), &mut out);
+        drops
+            .into_iter()
+            .flat_map(|d| {
+                if d.item.starts_with(DYNAMIC) {
+                    roll.dynamic.to_vec()
+                } else {
+                    vec![d]
                 }
-            } else {
-                out.push(d);
-            }
+            })
+            .collect()
+    }
+    /// `LootTable.createStackSplitter` over [`Self::block_drops`]' results, in order.
+    pub fn split_stacks(&self, stacks: Vec<ItemStack>) -> Vec<ItemStack> {
+        let mut out = Vec::with_capacity(stacks.len());
+        for stack in stacks {
+            split_stack(self, stack, &mut out);
         }
         out
     }
@@ -1649,7 +1658,7 @@ impl Items {
             location,
             keep_empty: roll.keep_empty,
         };
-        ctx.roll(table, random)
+        ctx.evaluate(table, random)
     }
     /// Evaluate an entity's loot table (`minecraft:entities/<name>`).
     /// Evaluate any loot table by id (e.g. `minecraft:gameplay/chicken_lay`).
@@ -3758,7 +3767,7 @@ mod tests {
             BlockLootRoll::default(),
             &mut random,
         );
-        assert_eq!(summary(block), expected);
+        assert_eq!(summary(items.split_stacks(block)), expected);
         let mut unsplit = LegacyRandom::new(5);
         let _ = ctx(&items, None, &props, "minecraft:stone").evaluate(&table, &mut unsplit);
         // The last pool's chance draws: the random has moved on, as far as unsplit.

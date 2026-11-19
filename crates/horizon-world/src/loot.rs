@@ -1135,15 +1135,18 @@ impl LootData {
             .unwrap_or_default()
     }
     /// `ItemStack.getMaxStackSize` of a rolled stack: its last `max_stack_size`
-    /// patch, 1 when that patch removes it (`getOrDefault(MAX_STACK_SIZE, 1)`),
-    /// else its item's.
+    /// patch, 1 when that patch removes it (`getOrDefault(MAX_STACK_SIZE, 1)`;
+    /// the patch's `"!minecraft:max_stack_size"` key, or a null value), else its
+    /// item's.
     fn stack_max(&self, stack: &LootStack) -> i32 {
+        const KEY: &str = "minecraft:max_stack_size";
         let patch = stack
             .components
             .iter()
             .rev()
-            .find(|(id, _)| id == "minecraft:max_stack_size");
+            .find(|(id, _)| id.strip_prefix('!').unwrap_or(id) == KEY);
         match patch {
+            Some((id, _)) if id.starts_with('!') => 1,
             Some((_, Some(Tag::Byte(n)))) => i32::from(*n),
             Some((_, Some(Tag::Short(n)))) => i32::from(*n),
             Some((_, Some(Tag::Int(n)))) => *n,
