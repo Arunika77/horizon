@@ -2047,15 +2047,16 @@ impl Game<'_> {
     }
 
     /// The shared command-node executor, also reached by functions and `execute`.
-    pub(super) fn run_native_command(
-        &mut self,
-        context: Context,
-        raw: &str,
-    ) -> super::commands::R<i32> {
+    pub(super) fn run_native_command(&mut self, context: Context) -> super::commands::R<i32> {
         use super::commands::err;
-        let command = self
-            .resolve_native_command(context)?
-            .with_raw(raw.to_owned());
+        let start = context.range.0;
+        let command = self.resolve_native_command(context)?;
+        let raw = self
+            .exec
+            .native_command_input
+            .as_deref()
+            .and_then(|input| input.get(start..));
+        let command = command.with_raw(raw.unwrap_or_default().to_owned());
         let origin = self.native_command_origin(self.ui.registries.permission)?;
         let mut ran = false;
         self.native_run_mod_command(&origin, &command, &mut ran);

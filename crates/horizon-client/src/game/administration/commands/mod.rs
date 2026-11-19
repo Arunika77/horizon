@@ -262,7 +262,10 @@ impl Game<'_> {
                 let ctx = ctx.clone();
                 let root = parse.context.clone();
                 self.exec = Default::default();
-                self.run_chain(&root, &ctx, &parse.input)
+                if ctx.command == Some("native_mod_command") {
+                    self.exec.native_command_input = Some(parse.input);
+                }
+                self.run_chain(&root, &ctx)
             }
         };
         let ok = result.is_ok();
@@ -974,9 +977,9 @@ impl Game<'_> {
     }
     // ---- dispatch -------------------------------------------------------
 
-    fn execute_command(&mut self, id: &str, ctx: &Context, raw: &str) -> R<i32> {
+    fn execute_command(&mut self, id: &str, ctx: &Context) -> R<i32> {
         match id {
-            "native_mod_command" => self.run_native_command(ctx.clone(), raw),
+            "native_mod_command" => self.run_native_command(ctx.clone()),
             "help" => self.cmd_help(ctx),
             "gamemode" => self.cmd_gamemode(ctx),
             "defaultgamemode" => {

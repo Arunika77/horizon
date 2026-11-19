@@ -5731,7 +5731,7 @@ mod connected_statistics_save_tests {
             let parsed = dispatcher.parse(command, &game.ui.registries);
             let (ctx, _) = parsed.executable().expect("registered dedicated command");
             let (root, ctx) = (parsed.context.clone(), ctx.clone());
-            assert_eq!(game.run_chain(&root, &ctx, &parsed.input).unwrap(), 1);
+            assert_eq!(game.run_chain(&root, &ctx).unwrap(), 1);
             let messages = game.chat_capture.take().unwrap();
             assert!(
                 messages

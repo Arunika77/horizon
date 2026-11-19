@@ -144,7 +144,7 @@ mod tests {
         let parse = d.parse(line, &game.ui.registries);
         let (ctx, _) = parse.executable().expect(line);
         let (ctx, root) = (ctx.clone(), parse.context.clone());
-        game.run_chain(&root, &ctx, &parse.input).expect(line)
+        game.run_chain(&root, &ctx).expect(line)
     }
 
     #[test]
