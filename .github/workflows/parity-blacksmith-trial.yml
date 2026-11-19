@@ -1,0 +1,28 @@
+name: parity blacksmith trial
+# Trial (2026-11-19): can a Blacksmith runner fetch the private, encrypted vanilla data (horizon-rust/vanilla-data)
+# and run a harness? Pushes to this branch only; never a pull request, so no fork's code ever sees the secrets.
+# Only the fetch step gets them (env:), and tools/ci/fetch-vanilla-data.sh removes them from disk before it ends.
+on:
+  push:
+    branches: [ci/parity-blacksmith-trial]
+permissions:
+  contents: read
+
+jobs:
+  plumbing:
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch the dummy payload
+        env:
+          VANILLA_DATA_DEPLOY_KEY: ${{ secrets.VANILLA_DATA_DEPLOY_KEY }}
+          VANILLA_DATA_PASSPHRASE: ${{ secrets.VANILLA_DATA_PASSPHRASE }}
+        run: bash tools/ci/fetch-vanilla-data.sh dummy "$RUNNER_TEMP/vanilla-dummy"
+      - name: The dummy's digest, and nothing of the secrets left
+        run: |
+          cd "$RUNNER_TEMP/vanilla-dummy" && sha256sum check.txt noise.bin
+          echo "secret variables in this step: $(env | grep -c '^VANILLA_DATA_' || true)"
+          echo "fetch folders left: $(find "$RUNNER_TEMP" -maxdepth 1 -name 'vanilla-fetch.*' | wc -l)"
