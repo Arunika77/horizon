@@ -325,13 +325,14 @@ impl Game<'_> {
                     Some(Target::Guest(conn)) if self.lan_acting != Some(conn) => Some(conn),
                     _ => None,
                 };
-                if let Some(conn) = guest {
+                // Keep the source in scope across the replaceable mob damage call.
+                let previous_bullet_damage =
+                    std::mem::replace(&mut self.command_damage_by_shulker_bullet, bullet);
+                let hurt = if let Some(conn) = guest {
                     let attack = self.current_attack();
                     let hurt = self
                         .as_guest(conn, |g| {
-                            g.with_attack(attack, |g| {
-                                g.command_damage_mob(id, amount, damage, bullet)
-                            })
+                            g.with_attack(attack, |g| g.command_damage_mob(id, amount, damage))
                         })
                         .unwrap_or(false);
                     if hurt && let Some(host) = self.lan.as_mut() {
@@ -339,8 +340,10 @@ impl Game<'_> {
                     }
                     hurt
                 } else {
-                    self.command_damage_mob(id, amount, damage, bullet)
-                }
+                    self.command_damage_mob(id, amount, damage)
+                };
+                self.command_damage_by_shulker_bullet = previous_bullet_damage;
+                hurt
             }
             Target::Item(id) => self.hurt_item_entity(id, amount, ty, by, cause.or(by), from),
             Target::Boat(_) | Target::Cart(_) => {
@@ -450,15 +453,9 @@ impl Game<'_> {
     /// `DamageCommand.damage`: retain the accepted hit's player context and run
     /// `Zombie.hurtServer`'s reinforcement requests before the command returns.
     /// Health-changing hits also raise their damage vibration before return.
-    /// `by_shulker_bullet` triggers a shulker's projectile response on an accepted hit.
-    fn command_damage_mob(
-        &mut self,
-        id: u32,
-        amount: f32,
-        damage: Damage,
-        by_shulker_bullet: bool,
-    ) -> bool {
+    fn command_damage_mob(&mut self, id: u32, amount: f32, damage: Damage) -> bool {
         let attack = self.combat.attack();
+        let by_shulker_bullet = self.command_damage_by_shulker_bullet;
         let mut reinforcements = Vec::new();
         let mut health_changed = false;
         let hurt = self.mobs.iter_mut().find(|m| m.id == id).is_some_and(|m| {
@@ -2135,7 +2132,7 @@ mod allay_owner_damage_tests {
                     } else {
                         // The command entry point lends its resolved attacker to the damage path.
                         let attack = game.attack_of_who(source.attacker);
-                        game.with_attack(attack, |g| g.command_damage_mob(1, 2.0, source, false))
+                        game.with_attack(attack, |g| g.command_damage_mob(1, 2.0, source))
                     };
                     let expected = liked != Some(actual);
                     assert_eq!(accepted, expected, "melee={melee}, liked={liked:?}");
