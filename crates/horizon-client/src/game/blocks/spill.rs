@@ -121,28 +121,26 @@ impl Pending {
             self.shulker.insert(pos, kept);
         }
     }
-    /// Copy what was remembered for `pos` into a drop of the block.
+    /// Copy what was remembered for `pos` into a drop of the block. Every
+    /// matching drop gets it, as `copy_components` runs on each stack before the
+    /// stack splitter: the pieces of a split stack all carry it. The record lasts
+    /// until `clear`.
     pub(super) fn attach(&mut self, pos: [i32; 3], stack: &mut ItemStack) {
         if is_shulker_box(&stack.item)
-            && let Some(contents) = self.shulker.remove(&pos)
+            && let Some(contents) = self.shulker.get(&pos)
             && !contents.is_empty()
         {
-            stack.data_mut().container = contents;
+            stack.data_mut().container = contents.clone();
         }
-        if self
-            .names
-            .get(&pos)
-            .is_some_and(|(item, _)| **item == *stack.item)
-            && let Some((_, name)) = self.names.remove(&pos)
+        if let Some((item, name)) = self.names.get(&pos)
+            && **item == *stack.item
         {
-            stack.data_mut().custom_name = Some(name);
+            stack.data_mut().custom_name = Some(name.clone());
         }
-        if self
-            .copied
-            .get(&pos)
-            .is_some_and(|(item, _)| **item == *stack.item)
-            && let Some((_, copied)) = self.copied.remove(&pos)
+        if let Some((item, copied)) = self.copied.get(&pos)
+            && **item == *stack.item
         {
+            let copied = copied.clone();
             let mut patch = match item_data::encode_components(stack) {
                 Some(Tag::Compound(c)) => c,
                 _ => Default::default(),
@@ -152,7 +150,7 @@ impl Pending {
         }
         if &*stack.item == "minecraft:decorated_pot" {
             // The pot's block entity always copies its decorations, empty or not.
-            let sides = self.pot.remove(&pos).unwrap_or_default();
+            let sides = self.pot.get(&pos).cloned().unwrap_or_default();
             stack.data_mut().pot_decorations = Some(Box::new(sides));
         }
         if stack.item.ends_with("_banner")
@@ -160,7 +158,7 @@ impl Pending {
                 layers,
                 name,
                 components,
-            }) = self.banner.remove(&pos)
+            }) = self.banner.get(&pos).cloned()
         {
             let mut patch = match item_data::encode_components(stack) {
                 Some(Tag::Compound(c)) => c,
@@ -1663,5 +1661,45 @@ mod crafter_drop_name_tests {
                 "actual vanilla crafter drop retained source name: {unexpected:?}"
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod split_drop_copy_tests {
+    use super::*;
+
+    /// A table giving 65 player heads copies the head's components onto the
+    /// stack before `LootTable.createStackSplitter` cuts it into 64 + 1, so both
+    /// pieces carry them, not only the first one attached.
+    #[test]
+    fn every_piece_of_a_split_drop_carries_the_copied_components() {
+        let at = [1, 2, 3];
+        let mut pending = Pending::default();
+        let mut copied = Compound::new();
+        copied.insert(
+            "minecraft:custom_name".into(),
+            Tag::String("Steve's head".into()),
+        );
+        pending
+            .copied
+            .insert(at, ("minecraft:player_head".to_owned(), copied));
+        let mut pieces = [
+            ItemStack::new("minecraft:player_head", 64),
+            ItemStack::new("minecraft:player_head", 1),
+        ];
+        for piece in &mut pieces {
+            pending.attach(at, piece);
+        }
+        for piece in &pieces {
+            assert!(
+                piece.data().is_some_and(|d| d.custom_name.is_some()),
+                "{} heads",
+                piece.count
+            );
+        }
+        // Another item at the same place takes nothing.
+        let mut stone = ItemStack::new("minecraft:stone", 1);
+        pending.attach(at, &mut stone);
+        assert!(stone.data().is_none_or(|d| d.custom_name.is_none()));
     }
 }
