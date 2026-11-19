@@ -1364,7 +1364,7 @@ impl Game<'_> {
                 )
         });
     }
-    /// `PlayerTrigger.LOCATION` every second, and the other per-tick checks.
+    /// `PlayerTrigger.LOCATION` every 20 of the player's own ticks (`tickCount % 20`), and the others.
     pub(super) fn tick_advancements(&mut self) {
         if self.player.is_none() || self.remote.is_some() {
             return;
@@ -1404,7 +1404,7 @@ impl Game<'_> {
             self.trigger_levitation(start, (self.ticks - since) as i64);
         }
         self.tick_marks();
-        if self.ticks.is_multiple_of(20) {
+        if self.own_tick_count().is_some_and(|n| n % 20 == 0) {
             let me = self.player_entity_for("minecraft:location");
             self.trigger("minecraft:location", |c, w| {
                 let ctx = adv::Entities {
@@ -2973,11 +2973,10 @@ mod tests {
         game.mobs[0].add_effect_with("minecraft:speed", -1, 2, false, false);
         assert_eq!(
             game.mobs[0].extra.effects,
-            vec![horizon_client::mobs::StoredEffect::new(
-                "minecraft:speed",
-                -1,
-                2
-            )]
+            vec![horizon_client::mobs::StoredEffect {
+                show_icon: false,
+                ..horizon_client::mobs::StoredEffect::new("minecraft:speed", -1, 2)
+            }]
         );
         assert_eq!(
             game.entity_view_of(Target::Mob(32300)).effects,
