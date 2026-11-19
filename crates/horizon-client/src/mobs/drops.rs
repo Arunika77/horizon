@@ -909,6 +909,52 @@ mod death_loot_table_tests {
         assert!(items(0, false).iter().all(|i| i != "minecraft:diamond"));
     }
 
+    /// `LootTable.createStackSplitter` on a death: a stack's own
+    /// `max_stack_size` patch sets where it splits, so 12 ender pearls made to
+    /// stack to 5 drop as 5, 5 and 2.
+    #[test]
+    fn a_death_drop_splits_at_its_own_max_stack_size() {
+        let root =
+            std::env::temp_dir().join(format!("drops-max-stack-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("data/minecraft/loot_table");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("test.json"),
+            r#"{"type":"minecraft:entity","pools":[{"rolls":1,"entries":[{"type":"minecraft:item",
+                "name":"minecraft:ender_pearl","modifier":[{"type":"minecraft:set_count","count":12},
+                {"type":"minecraft:set_components","components":{"minecraft:max_stack_size":5}}]}]}]}"#,
+        )
+        .unwrap();
+        std::fs::write(root.join("items.json"), "{}").unwrap();
+        let defaults = horizon_world::item_defaults::read(&root).unwrap();
+        let loot = LootData::load(&root, &PackOverlay::NONE, &defaults).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let death = Death {
+            loot: &loot,
+            damage: None,
+            player: None,
+            player_killed: false,
+            luck: 0.0,
+            vehicle: None,
+            mob_drops: true,
+            world_seed: 0,
+        };
+        let kind = crate::mobs::sensor_scan_tests::kind();
+        let mut m = Mob::new(1, kind, horizon_core::geometry::Vec3::ZERO, 0.0);
+        m.extra.death_loot_table = Some("minecraft:test".into());
+        let mut sequences = RandomSequences::default();
+        let (out, _) = die(&mut m, &death, &mut sequences, &mut level_random(7));
+        let pearls: Vec<_> = out
+            .into_iter()
+            .filter_map(|d| match d {
+                Drop::Item(s) if s.item == "minecraft:ender_pearl" => Some(s.count),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(pearls, [5, 5, 2]);
+    }
+
     /// A listener of `enchanted_entity_loot` draws from the level's random in
     /// the middle of a roll on that random: the roll carries on after its
     /// draw, as vanilla's one shared random does.

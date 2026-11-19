@@ -1600,16 +1600,18 @@ impl Items {
         if !drops.iter().any(|d| d.item.starts_with(DYNAMIC)) {
             return drops;
         }
-        drops
-            .into_iter()
-            .flat_map(|d| {
-                if d.item.starts_with(DYNAMIC) {
-                    roll.dynamic.to_vec()
-                } else {
-                    vec![d]
+        // `LootParams.withDynamicDrop`'s stacks reach the output through the same splitter.
+        let mut out = Vec::with_capacity(drops.len());
+        for d in drops {
+            if d.item.starts_with(DYNAMIC) {
+                for stack in roll.dynamic {
+                    split_stack(self, stack.clone(), &mut out);
                 }
-            })
-            .collect()
+            } else {
+                out.push(d);
+            }
+        }
+        out
     }
 
     fn roll_block_table<R: RandomSource>(
