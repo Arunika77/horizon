@@ -779,9 +779,11 @@ impl GameLevel<'_> {
             },
         )
     }
-    /// Build item entities only after vanilla has finished merging stacks.
-    pub(super) fn block_drop_item(&mut self, at: [i32; 3], mut stack: ItemStack) -> BlockItemDrop {
-        self.pending.attach(at, &mut stack);
+    /// Build item entities only after vanilla has finished merging stacks. `stack`
+    /// already carries what the block entity copies ([`Pending::attach_and_split`] in
+    /// `block_dropped`, the explosion's own pass): attaching again would find the record
+    /// gone, and a pot would lose its decorations.
+    pub(super) fn block_drop_item(&mut self, at: [i32; 3], stack: ItemStack) -> BlockItemDrop {
         let position = pop_position(&mut self.world.random, at);
         let random = prepare_item_random(None);
         BlockItemDrop {
@@ -1719,6 +1721,52 @@ mod split_drop_copy_tests {
         let got = names(&dropped);
         assert_eq!(got.iter().map(|(c, _)| *c).collect::<Vec<_>>(), [64, 1]);
         assert!(got.iter().all(|(_, n)| n.is_some()), "{got:?}");
+    }
+
+    /// `DecoratedPotBlock`'s table copies the pot's decorations onto its one
+    /// result, and only once: a pot with sherds drops with all four.
+    #[test]
+    fn a_broken_pot_drops_with_its_four_decorations() {
+        let at = [1, 2, 3];
+        let items = Items::empty();
+        let mut pending = Pending::default();
+        let sherd = |id: &str| Some(ItemStack::new(id, 1));
+        let sides = [
+            sherd("minecraft:angler_pottery_sherd"),
+            sherd("minecraft:brick"),
+            sherd("minecraft:skull_pottery_sherd"),
+            sherd("minecraft:heart_pottery_sherd"),
+        ];
+        pending.pot.insert(at, sides.clone());
+        let raw = vec![ItemStack::new("minecraft:decorated_pot", 1)];
+        let dropped = pending.attach_and_split(&items, at, raw);
+        assert_eq!(dropped.len(), 1);
+        let kept = dropped[0]
+            .data()
+            .and_then(|d| d.pot_decorations.as_deref())
+            .expect("the pot's decorations");
+        assert_eq!(kept, &sides);
+    }
+
+    /// A shulker box's contents go on the first box of the roll and no other.
+    #[test]
+    fn a_shulker_box_s_contents_arrive_once() {
+        let at = [1, 2, 3];
+        let items = Items::empty();
+        let mut pending = Pending::default();
+        let contents = vec![(0, ItemStack::new("minecraft:diamond", 3))];
+        pending.shulker.insert(at, contents.clone());
+        let raw = vec![
+            ItemStack::new("minecraft:shulker_box", 1),
+            ItemStack::new("minecraft:shulker_box", 1),
+        ];
+        let dropped = pending.attach_and_split(&items, at, raw);
+        let held: Vec<_> = dropped
+            .iter()
+            .map(|s| s.data().map_or(0, |d| d.container.len()))
+            .collect();
+        assert_eq!(held, [1, 0]);
+        assert_eq!(dropped[0].data().unwrap().container, contents);
     }
 
     /// Two separate results of the same item in one roll: as on main, the copy
