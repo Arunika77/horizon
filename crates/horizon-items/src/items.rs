@@ -1929,7 +1929,12 @@ impl<R: RandomSource> LootContext<'_, R> {
         let raw = self.evaluate(table, random);
         let mut out = Vec::with_capacity(raw.len());
         for stack in raw {
-            split_stack(self.items, stack, &mut out);
+            // A `minecraft:dynamic` marker becomes the dynamic drops later, whatever its count.
+            if stack.item.starts_with(DYNAMIC) {
+                out.push(stack);
+            } else {
+                split_stack(self.items, stack, &mut out);
+            }
         }
         out
     }
