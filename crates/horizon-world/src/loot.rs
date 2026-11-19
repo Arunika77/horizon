@@ -1137,7 +1137,7 @@ impl LootData {
     /// `ItemStack.getMaxStackSize` of a rolled stack: its last `max_stack_size`
     /// patch, 1 when that patch removes it (`getOrDefault(MAX_STACK_SIZE, 1)`),
     /// else its item's.
-    fn max_stack(&self, stack: &LootStack) -> i32 {
+    fn stack_max(&self, stack: &LootStack) -> i32 {
         let patch = stack
             .components
             .iter()
@@ -1154,7 +1154,7 @@ impl LootData {
     }
     /// LootTable.createStackSplitter (every item is enabled).
     fn split(&self, stack: LootStack, items: &mut Vec<LootStack>) {
-        let max = self.max_stack(&stack);
+        let max = self.stack_max(&stack);
         if stack.count < max {
             items.push(stack);
         } else {
