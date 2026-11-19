@@ -2194,6 +2194,19 @@ impl Game<'_> {
         Ok(self.native_invocation(context.literals, arguments))
     }
 
+    /// Dispatch raw input before parsing a registered player command.
+    fn run_registered_player_command(&mut self, line: &str, permission: u8) -> bool {
+        if !mod_api::__private::listened(mod_api::HookId::RegisteredPlayerCommand) {
+            return false;
+        }
+        let Some(player) = self.native_acting_player() else {
+            return false;
+        };
+        let mut handled = false;
+        self.native_registered_player_command(player, permission, line, &mut handled);
+        handled
+    }
+
     /// A guest's command for the mods, inside their swap
     /// (`run_guest_command`): true when one ran it.
     pub(super) fn perform_native_command(&mut self, conn: u32, permission: u8, line: &str) -> bool {
@@ -2211,13 +2224,7 @@ impl Game<'_> {
             return false;
         }
         let previous = std::mem::replace(&mut self.ui.registries.permission, permission);
-        let mut handled = false;
-        if mod_api::__private::listened(mod_api::HookId::RegisteredPlayerCommand)
-            && let Some(player) = self.native_acting_player()
-        {
-            self.native_registered_player_command(player, permission, line, &mut handled);
-        }
-        if !handled {
+        if !self.run_registered_player_command(line, permission) {
             self.run_command(line);
         }
         self.ui.registries.permission = previous;
