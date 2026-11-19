@@ -914,8 +914,7 @@ mod death_loot_table_tests {
     /// stack to 5 drop as 5, 5 and 2.
     #[test]
     fn a_death_drop_splits_at_its_own_max_stack_size() {
-        let root =
-            std::env::temp_dir().join(format!("drops-max-stack-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("drops-max-stack-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let dir = root.join("data/minecraft/loot_table");
         std::fs::create_dir_all(&dir).unwrap();
