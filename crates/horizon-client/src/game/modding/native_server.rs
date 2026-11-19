@@ -2047,9 +2047,15 @@ impl Game<'_> {
     }
 
     /// The shared command-node executor, also reached by functions and `execute`.
-    pub(super) fn run_native_command(&mut self, context: Context) -> super::commands::R<i32> {
+    pub(super) fn run_native_command(
+        &mut self,
+        context: Context,
+        raw: &str,
+    ) -> super::commands::R<i32> {
         use super::commands::err;
-        let command = self.resolve_native_command(context)?;
+        let command = self
+            .resolve_native_command(context)?
+            .with_raw(raw.to_owned());
         let origin = self.native_command_origin(self.ui.registries.permission)?;
         let mut ran = false;
         self.native_run_mod_command(&origin, &command, &mut ran);
@@ -2425,7 +2431,10 @@ mod tests {
         ));
         let plain = ItemStack::new("minecraft:stick", 5);
         assert_eq!(api_stack_or_keep(Some(unknown.clone()), &mut kept), None);
-        assert_eq!(api_stack_or_keep(Some(odd_components.clone()), &mut kept), None);
+        assert_eq!(
+            api_stack_or_keep(Some(odd_components.clone()), &mut kept),
+            None
+        );
         assert_eq!(api_stack_or_keep(None, &mut kept), None);
         assert_eq!(
             api_stack_or_keep(Some(plain.clone()), &mut kept),
@@ -3717,7 +3726,7 @@ mod tests {
                         assert_eq!(game.world.random.state(), random, "denied selectors must not resolve");
                         assert!(heard.lock().unwrap().is_empty(), "failed input must not reach listeners");
                         for line in [
-                            "typed give guest13 37 hello typed world",
+                            "typed give guest13 37 hello  typed world",
                             "typed give @s -4",
                             "typed opt",
                             "typed opt 9",
@@ -3774,11 +3783,13 @@ mod tests {
                     assert_eq!(heard.len(), 12);
                     let first = &heard[0].1;
                     assert_eq!(first.literals, ["typed", "give"]);
+                    assert_eq!(first.raw(), "typed give guest13 37 hello  typed world");
+                    assert_eq!(heard[11].1.raw(), "typed opt 13");
                     assert_eq!(first.argument("who"), Some(&Value::Player(other)));
                     assert_eq!(first.argument("amount"), Some(&Value::Integer(37)));
                     assert_eq!(
                         first.argument("message"),
-                        Some(&Value::String("hello typed world".into()))
+                        Some(&Value::String("hello  typed world".into()))
                     );
                     assert_eq!(heard[1].1.argument("who"), Some(&Value::Player(acting)));
                     assert_eq!(heard[1].1.argument("amount"), Some(&Value::Integer(-4)));

@@ -6,9 +6,7 @@
 use super::Game;
 use super::commands::{R, execute::Source};
 use super::game_tests::tests::server_game;
-use horizon_client::{
-    command::vanilla, motion::PlayerMotion, sculk::WardenSpawnTracker,
-};
+use horizon_client::{command::vanilla, motion::PlayerMotion, sculk::WardenSpawnTracker};
 use horizon_core::geometry::Vec3;
 use horizon_core::nbt::Tag;
 use std::sync::Arc;
@@ -32,7 +30,7 @@ fn run_with(game: &mut Game<'_>, line: &str, source: Source) -> R<i32> {
     let parse = d.parse(line, &game.ui.registries);
     let (ctx, _) = parse.executable().expect(line);
     let (ctx, root) = (ctx.clone(), parse.context.clone());
-    game.with_source(source, |g| g.run_chain(&root, &ctx))
+    game.with_source(source, |g| g.run_chain(&root, &ctx, &parse.input))
 }
 
 /// The same, as the player's own command (no `execute` source).
@@ -41,7 +39,7 @@ fn run(game: &mut Game<'_>, line: &str) -> R<i32> {
     let parse = d.parse(line, &game.ui.registries);
     let (ctx, _) = parse.executable().expect(line);
     let (ctx, root) = (ctx.clone(), parse.context.clone());
-    game.run_chain(&root, &ctx)
+    game.run_chain(&root, &ctx, &parse.input)
 }
 
 /// `warden_spawn_tracker` as `/data get entity` reads it and as the player's

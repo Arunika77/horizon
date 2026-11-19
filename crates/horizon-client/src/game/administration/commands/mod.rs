@@ -262,7 +262,7 @@ impl Game<'_> {
                 let ctx = ctx.clone();
                 let root = parse.context.clone();
                 self.exec = Default::default();
-                self.run_chain(&root, &ctx)
+                self.run_chain(&root, &ctx, &parse.input)
             }
         };
         let ok = result.is_ok();
@@ -974,9 +974,9 @@ impl Game<'_> {
     }
     // ---- dispatch -------------------------------------------------------
 
-    fn execute_command(&mut self, id: &str, ctx: &Context) -> R<i32> {
+    fn execute_command(&mut self, id: &str, ctx: &Context, raw: &str) -> R<i32> {
         match id {
-            "native_mod_command" => self.run_native_command(ctx.clone()),
+            "native_mod_command" => self.run_native_command(ctx.clone(), raw),
             "help" => self.cmd_help(ctx),
             "gamemode" => self.cmd_gamemode(ctx),
             "defaultgamemode" => {
@@ -1279,9 +1279,7 @@ impl Game<'_> {
             .as_deref()
             .map(horizon_client::item_data::command_components)
         {
-            Some(Ok(tag)) => {
-                horizon_client::item_data::decode_components_for_item(&id, Some(&tag))
-            }
+            Some(Ok(tag)) => horizon_client::item_data::decode_components_for_item(&id, Some(&tag)),
             Some(Err(e)) => return Err(CommandError::new(Text::literal(e))),
             None => (0, None),
         };
@@ -4883,20 +4881,25 @@ mod forced_respawn_tests {
         with_game(|game| {
             game.build_registries();
             game.set_allow_commands(true);
-            for pos in [[1_000_000, 1024, -1_000_000], [-29_999_999, -1024, 29_999_999]] {
+            for pos in [
+                [1_000_000, 1024, -1_000_000],
+                [-29_999_999, -1024, 29_999_999],
+            ] {
                 assert!(!game.world.chunks.contains_key(&(pos[0] >> 4, pos[2] >> 4)));
-                assert!(game.run_command(&format!(
-                    "setworldspawn {} {} {}",
-                    pos[0], pos[1], pos[2]
-                )));
+                assert!(
+                    game.run_command(&format!("setworldspawn {} {} {}", pos[0], pos[1], pos[2]))
+                );
                 assert_eq!(game.level.world_spawn, Some(pos));
             }
             let previous = game.level.world_spawn;
-            for pos in [[30_000_000, 64, 0], [0, 20_000_000, 0], [0, 64, -30_000_001]] {
-                assert!(!game.run_command(&format!(
-                    "setworldspawn {} {} {}",
-                    pos[0], pos[1], pos[2]
-                )));
+            for pos in [
+                [30_000_000, 64, 0],
+                [0, 20_000_000, 0],
+                [0, 64, -30_000_001],
+            ] {
+                assert!(
+                    !game.run_command(&format!("setworldspawn {} {} {}", pos[0], pos[1], pos[2]))
+                );
                 assert_eq!(game.level.world_spawn, previous);
             }
         });
