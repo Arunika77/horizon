@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   plumbing:
+    if: false # measured in run 44617266924 or earlier; only harness-client runs from here on
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 15
     steps:
@@ -32,6 +33,7 @@ jobs:
   # links into it, the probe build in .local/parity-target, the harness's work folder in target/), and the runner
   # is thrown away after the job. Nothing is uploaded.
   harness:
+    if: false # measured in run 44617266924 or earlier; only harness-client runs from here on
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 90
     env:
@@ -125,6 +127,7 @@ jobs:
   # sources, sounds or languages needed), on the same cold setup. parity.py --changed-files would pick every harness
   # on a fresh runner (none has a record yet), so they are named.
   harness-wider:
+    if: false # measured in run 44617266924 or earlier; only harness-client runs from here on
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 45
     env:
@@ -262,6 +265,7 @@ jobs:
   # them too slowly) on Xvfb with Mesa's software Vulkan, as tools/ci/linux-runner.sh sets up a GPU-less runner: does a
   # 16-vCPU runner without a GPU pass them, and what do the game's cold build and the oracles cost?
   harness-render:
+    if: false # measured in run 44617266924 or earlier; only harness-client runs from here on
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 75
     env:
@@ -391,3 +395,178 @@ jobs:
             echo "| total, from the first step | $(( $(date +%s) - SETUP_START )) |"
           } | tee -a "$GITHUB_STEP_SUMMARY"
           echo "disk: vanilla $(du -sk "$VANILLA" | cut -f1) KiB, probe target $(du -sk .local/parity-target 2>/dev/null | cut -f1) KiB, target $(du -sk target 2>/dev/null | cut -f1) KiB"
+
+  # The horizon-client probes: client_probe's cold build in the two profiles the harnesses use (fast, and dev with
+  # parity.py's opt-level 3), with its time and disk use, then 10 harnesses that run it without starting the game.
+  # Last, one harness that starts the game and drives it with horizon-ctl (spawn_loot: offscreen on lavapipe, under
+  # Xvfb). One attempt; its result is recorded whatever it is.
+  harness-client:
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 90
+    env:
+      HORIZON_TELEMETRY_URL: "off"
+      # No compiler cache: sccache's cache would outlive nothing here, and no cache may hold this job's output.
+      HORIZON_NO_SCCACHE: "1"
+      CARGO_BUILD_JOBS: "16"
+      PARITY_LOCAL_JOBS: "8"
+      PARITY_MACHINE_JOBS: "8"
+    steps:
+      - name: Clock
+        run: |
+          echo "SETUP_START=$(date +%s)" >> "$GITHUB_ENV"
+          {
+            echo "VANILLA=$RUNNER_TEMP/vanilla"
+            echo "HORIZON_SHARED_SOURCE=$RUNNER_TEMP/vanilla/shared-local"
+            echo "HORIZON_PREPARED_CACHE=$RUNNER_TEMP/vanilla/prepared"
+            echo "PARITY_SHARED=$RUNNER_TEMP/vanilla/parity-shared"
+          } >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The JDK research-lock.json pins
+        id: lock
+        run: |
+          echo "java=$(sed -n 's/.*"java_major": *\([0-9]*\).*/\1/p' research-lock.json | head -1)" >> "$GITHUB_OUTPUT"
+      # What tools/ci/linux-runner.sh installs on Ubuntu, the screen included (Xvfb, Mesa's lavapipe), less sccache.
+      - name: Build and screen packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends build-essential pkg-config cmake libasound2-dev libudev-dev \
+            mesa-vulkan-drivers libvulkan1 xvfb libx11-6 libxcursor1 libxrandr2 libxi6 libxinerama1 libxkbcommon0 \
+            libxkbcommon-x11-0 libgl1 libegl1 > /dev/null
+      - name: A virtual screen
+        run: |
+          Xvfb :90 -screen 0 1280x720x24 -nolisten tcp > /dev/null 2>&1 &
+          icd=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
+          [ -n "$icd" ] || { echo "::error::no lavapipe driver file"; exit 1; }
+          echo "lavapipe: $icd"
+          { echo "DISPLAY=:90"; echo "VK_DRIVER_FILES=$icd"; } >> "$GITHUB_ENV"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: ${{ steps.lock.outputs.java }}
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable, 2026-11
+        with:
+          toolchain: stable
+      - name: Tools from the runner
+        run: |
+          bash tools/ci/runner-env.sh
+          echo "runner setup $(( $(date +%s) - SETUP_START ))" >> "$RUNNER_TEMP/timings"
+      # Seconds each harness spends in javac, java (its oracle) and cargo, by harness (parity.py gives each harness its
+      # own HORIZON_HOME): names and numbers only. Each wrapper runs the real program by its absolute path.
+      - name: Timing wrappers
+        run: |
+          mkdir -p "$RUNNER_TEMP/timing-bin"
+          for name in javac java cargo; do
+            real=$(command -v "$name")
+            cat > "$RUNNER_TEMP/timing-bin/$name" <<EOF
+          #!/usr/bin/env bash
+          start=\$(date +%s.%N)
+          "$real" "\$@"
+          status=\$?
+          h=\${HORIZON_HOME##*/}
+          echo "$name \${h:--} \$(date +%s.%N) \$start" >> "$RUNNER_TEMP/tool-times"
+          exit \$status
+          EOF
+            chmod +x "$RUNNER_TEMP/timing-bin/$name"
+          done
+          echo "$RUNNER_TEMP/timing-bin" >> "$GITHUB_PATH"
+      - name: Fetch the vanilla data
+        env:
+          VANILLA_DATA_DEPLOY_KEY: ${{ secrets.VANILLA_DATA_DEPLOY_KEY }}
+          VANILLA_DATA_PASSPHRASE: ${{ secrets.VANILLA_DATA_PASSPHRASE }}
+        run: |
+          start=$(date +%s)
+          bash tools/ci/fetch-vanilla-data.sh 26.3-linux-x64 "$HORIZON_SHARED_SOURCE"
+          echo "data fetch, decrypt, unpack $(( $(date +%s) - start ))" >> "$RUNNER_TEMP/timings"
+      # Built here first, so that vanilla-data.sh's own cargo build finds it done and its time is the export's.
+      - name: Build horizon-prepare
+        run: |
+          start=$(date +%s)
+          cargo build --release --locked -p horizon-prepare
+          echo "horizon-prepare build $(( $(date +%s) - start ))" >> "$RUNNER_TEMP/timings"
+      - name: Vanilla data, and resources prepared by this preparer
+        run: |
+          start=$(date +%s)
+          bash tools/ci/vanilla-data.sh
+          echo "resource export (vanilla-data.sh) $(( $(date +%s) - start ))" >> "$RUNNER_TEMP/timings"
+      # client_probe, built as the harnesses build it (parity.py's target folder and profile settings), once per profile
+      # they use. The disk figure is the whole probe target folder after each build.
+      - name: Build client_probe (fast, then dev)
+        run: |
+          export CARGO_TARGET_DIR="$PWD/.local/parity-target" CARGO_PROFILE_RELEASE_LTO=false \
+            CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 CARGO_PROFILE_RELEASE_INCREMENTAL=true CARGO_PROFILE_DEV_OPT_LEVEL=3
+          start=$(date +%s)
+          cargo build --locked --profile fast -p horizon-client-lib --example client_probe
+          echo "client_probe build, fast $(( $(date +%s) - start ))" >> "$RUNNER_TEMP/timings"
+          echo "probe target KiB after fast $(du -sk .local/parity-target | cut -f1)" >> "$RUNNER_TEMP/timings"
+          start=$(date +%s)
+          cargo build --locked -p horizon-client-lib --example client_probe
+          echo "client_probe build, dev (opt-level 3) $(( $(date +%s) - start ))" >> "$RUNNER_TEMP/timings"
+          echo "probe target KiB after dev $(du -sk .local/parity-target | cut -f1)" >> "$RUNNER_TEMP/timings"
+      - name: The client-probe harnesses
+        env:
+          PARITY_HOSTS: ''
+        run: |
+          set -o pipefail
+          start=$(date +%s)
+          status=0
+          python3 tools/parity.py --timeout 1200 enchanting light hud scoreboard team_rules stack_foil hotbar \
+            container_title chest_pair recipe_book | tee -a "$RUNNER_TEMP/parity.out" || status=$?
+          echo "10 client-probe harnesses (8 at a time) $(( $(date +%s) - start ))" >> "$RUNNER_TEMP/timings"
+          exit "$status"
+      # The game and horizon-ctl, as spawn_loot builds them itself (fast profile, --bins), timed apart from the harness.
+      - name: Build the game and horizon-ctl
+        if: ${{ !cancelled() }}
+        run: |
+          start=$(date +%s)
+          CARGO_TARGET_DIR="$PWD/.local/parity-target" CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
+            CARGO_PROFILE_RELEASE_INCREMENTAL=true CARGO_PROFILE_DEV_OPT_LEVEL=3 \
+            cargo build --locked --profile fast -p horizon-game -p horizon-client-lib --bins
+          echo "game and horizon-ctl build, fast $(( $(date +%s) - start ))" >> "$RUNNER_TEMP/timings"
+          echo "probe target KiB after the game $(du -sk .local/parity-target | cut -f1)" >> "$RUNNER_TEMP/timings"
+      # Three ordinary game-starting harnesses (none solo, named-only or known to fail): spawn_loot drives the game with
+      # horizon-ctl; composter and boat_authority run the client in fixture mode.
+      - name: Harnesses that start the game (lavapipe)
+        if: ${{ !cancelled() }}
+        env:
+          PARITY_HOSTS: ''
+        run: |
+          set -o pipefail
+          start=$(date +%s)
+          status=0
+          python3 tools/parity.py --timeout 1500 spawn_loot composter boat_authority | tee -a "$RUNNER_TEMP/parity.out" || status=$?
+          echo "3 game-starting harnesses $(( $(date +%s) - start ))" >> "$RUNNER_TEMP/timings"
+          exit "$status"
+      - name: Seconds per harness in the oracles and in cargo
+        if: always()
+        run: |
+          touch "$RUNNER_TEMP/tool-times" "$RUNNER_TEMP/parity.out"
+          python3 - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import collections, os, re
+          temp = os.environ["RUNNER_TEMP"]
+          spent = collections.defaultdict(collections.Counter)
+          for line in open(f"{temp}/tool-times"):
+              tool, harness, end, start = line.split()
+              spent[harness][tool] += float(end) - float(start)
+          totals = {m[2]: m[3] for m in re.finditer(r"^(PASS|FAIL) (\S+) (\d+)s", open(f"{temp}/parity.out").read(), re.M)}
+          print("| Harness | Result seconds | javac | java (oracle) | cargo |")
+          print("| --- | ---: | ---: | ---: | ---: |")
+          for harness in sorted(set(spent) | set(totals)):
+              s = spent[harness]
+              print(f"| {harness} | {totals.get(harness, '')} | {s['javac']:.0f} | {s['java']:.0f} | {s['cargo']:.0f} |")
+          EOF
+      - name: Timings
+        if: always()
+        run: |
+          touch "$RUNNER_TEMP/timings"
+          {
+            echo "| Part | Seconds |"
+            echo "| --- | ---: |"
+            while read -r line; do echo "| ${line% *} | ${line##* } |"; done < "$RUNNER_TEMP/timings"
+            echo "| total, from the first step | $(( $(date +%s) - SETUP_START )) |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "disk: vanilla $(du -sk "$VANILLA" | cut -f1) KiB, probe target $(du -sk .local/parity-target 2>/dev/null | cut -f1) KiB, target $(du -sk target 2>/dev/null | cut -f1) KiB, free $(df -k --output=avail . | tail -1) KiB"
