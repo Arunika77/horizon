@@ -2396,7 +2396,7 @@ mod tests {
         let parse = d.parse(command, &game.ui.registries);
         let (ctx, _) = parse.executable().ok()?;
         let (ctx, root) = (ctx.clone(), parse.context.clone());
-        game.run_chain(&root, &ctx).ok()
+        game.run_chain(&root, &ctx, &parse.input).ok()
     }
 
     #[test]
