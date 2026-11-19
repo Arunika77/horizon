@@ -905,6 +905,18 @@ pub trait LevelsBackendMut {
         natural_spawning: bool,
     ) -> bool;
     /// Side: server.
+    /// Hold or release a runtime-only operation ticket on this chunk. The
+    /// controller and identifier scope the ticket. It is discarded on close.
+    #[access(WorldOnly)]
+    fn chunk_set_transient_forced(
+        &mut self,
+        chunk: ChunkRef,
+        controller: TicketController,
+        operation: u128,
+        forced: bool,
+        natural_spawning: bool,
+    ) -> bool;
+    /// Side: server.
     /// Set a block (`Level.setBlock`). Stale/unavailable levels and invalid states return
     /// typed errors without mutation. Ok(false) means vanilla refused an unchanged,
     /// unloaded or out-of-height write. Notification follows the supplied update flags.
