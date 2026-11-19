@@ -1,5 +1,4 @@
 //! The `registered_player_command` hook.
-//!
 pub trait Hooks {
     /// A player submitted a command whose root appears in the mod command tree
     /// and whose root permission the player meets. The player's state is in place.
