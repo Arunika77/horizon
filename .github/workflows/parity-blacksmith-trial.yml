@@ -120,3 +120,97 @@ jobs:
             echo "| total, from the first step | $(( $(date +%s) - SETUP_START )) |"
           } | tee -a "$GITHUB_STEP_SUMMARY"
           echo "disk: vanilla $(du -sk "$VANILLA" | cut -f1) KiB, probe target $(du -sk .local/parity-target 2>/dev/null | cut -f1) KiB, target $(du -sk target 2>/dev/null | cut -f1) KiB"
+
+  # What a fuller run costs: 22 cheap server-side harnesses (horizon-world's world_probe and horizon-core probes; no
+  # sources, sounds or languages needed), on the same cold setup. parity.py --changed-files would pick every harness
+  # on a fresh runner (none has a record yet), so they are named.
+  harness-wider:
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    env:
+      HORIZON_TELEMETRY_URL: "off"
+      # No compiler cache: sccache's cache would outlive nothing here, and no cache may hold this job's output.
+      HORIZON_NO_SCCACHE: "1"
+      CARGO_BUILD_JOBS: "16"
+      PARITY_LOCAL_JOBS: "8"
+      PARITY_MACHINE_JOBS: "8"
+    steps:
+      - name: Clock
+        run: |
+          echo "SETUP_START=$(date +%s)" >> "$GITHUB_ENV"
+          {
+            echo "VANILLA=$RUNNER_TEMP/vanilla"
+            echo "HORIZON_SHARED_SOURCE=$RUNNER_TEMP/vanilla/shared-local"
+            echo "HORIZON_PREPARED_CACHE=$RUNNER_TEMP/vanilla/prepared"
+            echo "PARITY_SHARED=$RUNNER_TEMP/vanilla/parity-shared"
+          } >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The JDK research-lock.json pins
+        id: lock
+        run: |
+          echo "java=$(sed -n 's/.*"java_major": *\([0-9]*\).*/\1/p' research-lock.json | head -1)" >> "$GITHUB_OUTPUT"
+      # What tools/ci/linux-runner.sh installs on Ubuntu, less the screen (Xvfb, lavapipe: this harness draws
+      # nothing) and sccache.
+      - name: Build packages
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends build-essential pkg-config cmake libasound2-dev libudev-dev > /dev/null
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: ${{ steps.lock.outputs.java }}
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable, 2026-11
+        with:
+          toolchain: stable
+      - name: Tools from the runner
+        run: |
+          bash tools/ci/runner-env.sh
+          echo "runner setup $(( $(date +%s) - SETUP_START ))" >> "$RUNNER_TEMP/timings"
+      - name: Fetch the vanilla data
+        env:
+          VANILLA_DATA_DEPLOY_KEY: ${{ secrets.VANILLA_DATA_DEPLOY_KEY }}
+          VANILLA_DATA_PASSPHRASE: ${{ secrets.VANILLA_DATA_PASSPHRASE }}
+        run: |
+          start=$(date +%s)
+          bash tools/ci/fetch-vanilla-data.sh 26.3-linux-x64 "$HORIZON_SHARED_SOURCE"
+          echo "data fetch, decrypt, unpack $(( $(date +%s) - start ))" >> "$RUNNER_TEMP/timings"
+      # Built here first, so that vanilla-data.sh's own cargo build finds it done and its time is the export's.
+      - name: Build horizon-prepare
+        run: |
+          start=$(date +%s)
+          cargo build --release --locked -p horizon-prepare
+          echo "horizon-prepare build $(( $(date +%s) - start ))" >> "$RUNNER_TEMP/timings"
+      - name: Vanilla data, and resources prepared by this preparer
+        run: |
+          start=$(date +%s)
+          bash tools/ci/vanilla-data.sh
+          echo "resource export (vanilla-data.sh) $(( $(date +%s) - start ))" >> "$RUNNER_TEMP/timings"
+      # world_probe, built first as parity.py builds it (its target folder and profile settings): the probes' cold cost.
+      - name: Build world_probe
+        run: |
+          start=$(date +%s)
+          CARGO_TARGET_DIR="$PWD/.local/parity-target" CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16             CARGO_PROFILE_RELEASE_INCREMENTAL=true CARGO_PROFILE_DEV_OPT_LEVEL=3             cargo build --locked --release -p horizon-world --example world_probe
+          echo "probe build (world_probe) $(( $(date +%s) - start ))" >> "$RUNNER_TEMP/timings"
+      - name: The harnesses
+        env:
+          PARITY_HOSTS: ''
+        run: |
+          start=$(date +%s)
+          status=0
+          python3 tools/parity.py --timeout 900 food java_hash_map block_properties block_state_codec collision fluid_shape             heightmap item_cooldowns item_durability status_effect attribute damage_source fall_damage piston_shape             simple_container snbt_unicode world_border biome_zoom rule_test value_provider height_provider carving_mask || status=$?
+          echo "22 harnesses (8 at a time) $(( $(date +%s) - start ))" >> "$RUNNER_TEMP/timings"
+          exit "$status"
+      - name: Timings
+        if: always()
+        run: |
+          touch "$RUNNER_TEMP/timings"
+          {
+            echo "| Part | Seconds |"
+            echo "| --- | ---: |"
+            while read -r line; do echo "| ${line% *} | ${line##* } |"; done < "$RUNNER_TEMP/timings"
+            echo "| total, from the first step | $(( $(date +%s) - SETUP_START )) |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "disk: vanilla $(du -sk "$VANILLA" | cut -f1) KiB, probe target $(du -sk .local/parity-target 2>/dev/null | cut -f1) KiB, target $(du -sk target 2>/dev/null | cut -f1) KiB"
