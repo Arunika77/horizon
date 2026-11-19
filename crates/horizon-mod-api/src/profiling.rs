@@ -7,6 +7,7 @@ static PROVIDER: OnceLock<Provider> = OnceLock::new();
 
 /// A named profiler scope. Dropping it ends the measurement on the current thread.
 #[must_use = "keep the guard until the end of the measured scope"]
+// no wire: the guard owns a scope in the native thread that opened it.
 pub struct Guard {
     _game_guard: Option<Box<dyn Any>>,
 }
