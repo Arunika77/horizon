@@ -1963,16 +1963,19 @@ impl<R: RandomSource> LootContext<'_, R> {
     }
 }
 /// `LootTable.createStackSplitter` (every item is enabled): a stack below its
-/// stack size as it is, else copies of at most the stack size, in order. An
-/// item with no facts here stacks to 64, `Item.Properties`' default, as
-/// `Items::load` and the world's loot facts give it.
+/// stack size as it is, else copies of at most the stack size, in order. The
+/// size is the stack's own `max_stack_size` (1 when it removes it), else its
+/// item's (64 when the item has no facts, `Item.Properties`' default, as
+/// `Items::load` and the world's loot facts give it).
 fn split_stack(items: &Items, stack: ItemStack, out: &mut Vec<ItemStack>) {
-    let max = if items.get(&stack.item).is_none()
-        && !stack.carries_component(None, "minecraft:max_stack_size")
-    {
-        64
-    } else {
+    let info = items.get(&stack.item);
+    let removed = stack
+        .data()
+        .is_some_and(|data| data.other("!minecraft:max_stack_size").is_some());
+    let max = if removed || stack.carries_component(None, "minecraft:max_stack_size") {
         crate::bundle::max_stack(items, &stack)
+    } else {
+        info.map_or(64, |info| info.max_stack.max(1))
     };
     if stack.count < max {
         out.push(stack);
@@ -3717,7 +3720,9 @@ mod tests {
             {"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:ender_pearl",
                 "modifier":[{"type":"minecraft:set_count","count":40}]}]},
             {"rolls":1,"entries":[{"type":"minecraft:item","name":"minecraft:diamond_sword",
-                "modifier":[{"type":"minecraft:set_count","count":3}]}]}]});
+                "modifier":[{"type":"minecraft:set_count","count":3}]}]},
+            {"rolls":1,"condition":{"type":"minecraft:random_chance","chance":0.0},"entries":[
+                {"type":"minecraft:item","name":"minecraft:stick"}]}]});
         items.loot = Arc::new(
             [("minecraft:entities/test".to_owned(), table.clone())]
                 .into_iter()
@@ -3749,6 +3754,8 @@ mod tests {
         assert_eq!(summary(block), expected);
         let mut unsplit = LegacyRandom::new(5);
         let _ = ctx(&items, None, &props, "minecraft:stone").evaluate(&table, &mut unsplit);
+        // The last pool's chance draws: the random has moved on, as far as unsplit.
+        assert_ne!(random.clone().next_long(), LegacyRandom::new(5).next_long());
         assert_eq!(random.next_long(), unsplit.next_long());
         let mob = items.entity_drops("minecraft:test", false, None, &mut LegacyRandom::new(5));
         assert_eq!(summary(mob), expected);
