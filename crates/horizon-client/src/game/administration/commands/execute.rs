@@ -66,6 +66,8 @@ pub(in crate::game) struct ExecState {
     /// Function IDs in execution order, with the active frame last.
     pub functions: Vec<String>,
     pub prepared_function: Option<super::super::functions::PreparedFunctionCall>,
+    /// Original input for the active parsed mod command, including any execute prefix.
+    pub native_command_input: Option<String>,
 }
 
 /// A modifier that brings the sources to `max_command_forks` ends the chain
@@ -258,17 +260,15 @@ impl Game<'_> {
         let parse = d.parse(line, &self.ui.registries);
         let (ctx, _) = parse.executable()?;
         let ctx = ctx.clone();
-        let root = parse.context.clone();
-        self.with_source(source, |g| g.run_chain(&root, &ctx, line))
+        let input = (ctx.command == Some("native_mod_command")).then_some(parse.input);
+        let saved = std::mem::replace(&mut self.exec.native_command_input, input);
+        let result = self.with_source(source, |g| g.run_chain(&parse.context, &ctx));
+        self.exec.native_command_input = saved;
+        result
     }
     /// Run a parsed command (`root` is the first context; `ctx` the one with
     /// the executable node): `execute` and `return` walk their own chains.
-    pub(in crate::game) fn run_chain(
-        &mut self,
-        root: &Context,
-        ctx: &Context,
-        input: &str,
-    ) -> R<i32> {
+    pub(in crate::game) fn run_chain(&mut self, root: &Context, ctx: &Context) -> R<i32> {
         self.exec.commands += 1;
         let limit = self
             .ui
@@ -279,19 +279,19 @@ impl Game<'_> {
             return Err(err("command.failed", &[]));
         }
         match root.literals.first().map(String::as_str) {
-            Some("execute") => self.run_execute(root, input),
-            Some("return") if root.child.is_some() => self.run_return_run(root, input),
+            Some("execute") => self.run_execute(root),
+            Some("return") if root.child.is_some() => self.run_return_run(root),
             _ => {
                 let id = ctx.command.unwrap_or("");
-                self.run_leaf(id, ctx, &input[ctx.range.0..])
+                self.run_leaf(id, ctx)
             }
         }
     }
     /// Run a leaf command and report its outcome to the `store` callbacks.
-    pub(in crate::game) fn run_leaf(&mut self, id: &str, ctx: &Context, raw: &str) -> R<i32> {
+    pub(in crate::game) fn run_leaf(&mut self, id: &str, ctx: &Context) -> R<i32> {
         self.exec.callback = None;
         let store = self.command_source.and_then(|s| s.store);
-        let result = self.execute_command(id, ctx, raw);
+        let result = self.execute_command(id, ctx);
         let custom = self.exec.callback.take();
         let outcome = match (&result, custom) {
             (_, Some(c)) => c,
@@ -357,7 +357,7 @@ impl Game<'_> {
     }
 
     /// ExecuteCommand: `ctx` is the context holding the `execute` literal.
-    pub(in crate::game) fn run_execute(&mut self, ctx: &Context, input: &str) -> R<i32> {
+    pub(in crate::game) fn run_execute(&mut self, ctx: &Context) -> R<i32> {
         // BuildContexts: a modifier may not bring the sources to this many.
         let fork_limit =
             self.ui
@@ -403,13 +403,13 @@ impl Game<'_> {
                     for s in sources {
                         let result = if let Some(tasks) = prepared.as_mut() {
                             self.exec.prepared_function = tasks.next();
-                            let result = self.with_source(s, |g| g.run_chain(command, last, input));
+                            let result = self.with_source(s, |g| g.run_chain(command, last));
                             // Includes a command-cost rejection before the leaf and
                             // a return/error after the slot was consumed.
                             self.exec.prepared_function = None;
                             result
                         } else {
-                            self.with_source(s, |g| g.run_chain(command, last, input))
+                            self.with_source(s, |g| g.run_chain(command, last))
                         };
                         match result {
                             Ok(n) => total += n,
@@ -560,12 +560,12 @@ impl Game<'_> {
         }
     }
     /// `return run <command>`: run it and return its result from the frame.
-    fn run_return_run(&mut self, root: &Context, input: &str) -> R<i32> {
+    fn run_return_run(&mut self, root: &Context) -> R<i32> {
         let Some(command) = root.child.as_deref() else {
             return Err(err("command.unknown.command", &[]));
         };
         let last = command.last_child();
-        let result = self.run_chain(command, last, input);
+        let result = self.run_chain(command, last);
         // The command's own callbacks do not fire; the function frame gets
         // its result instead.
         match result {

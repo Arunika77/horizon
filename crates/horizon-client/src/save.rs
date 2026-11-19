@@ -5172,7 +5172,7 @@ mod tests {
     fn transient_mod_tickets_hold_chunks_without_reopening_them_on_restart() {
         use super::*;
         let root = tempfile::tempdir().unwrap();
-        let save = Save::new(root.path().to_path_buf(), LevelShape::OVERWORLD);
+        let save = SaveDir::new(root.path().to_path_buf(), LevelShape::OVERWORLD);
         let mut tickets = ModTickets::default();
         let transient = ModTicket {
             controller: 0,

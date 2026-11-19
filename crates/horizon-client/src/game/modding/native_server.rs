@@ -2066,15 +2066,16 @@ impl Game<'_> {
     }
 
     /// The shared command-node executor, also reached by functions and `execute`.
-    pub(super) fn run_native_command(
-        &mut self,
-        context: Context,
-        raw: &str,
-    ) -> super::commands::R<i32> {
+    pub(super) fn run_native_command(&mut self, context: Context) -> super::commands::R<i32> {
         use super::commands::err;
-        let command = self
-            .resolve_native_command(context)?
-            .with_raw(raw.to_owned());
+        let start = context.range.0;
+        let command = self.resolve_native_command(context)?;
+        let raw = self
+            .exec
+            .native_command_input
+            .as_deref()
+            .and_then(|input| input.get(start..));
+        let command = command.with_raw(raw.unwrap_or_default().to_owned());
         let origin = self.native_command_origin(self.ui.registries.permission)?;
         let mut ran = false;
         self.native_run_mod_command(&origin, &command, &mut ran);
@@ -2212,6 +2213,19 @@ impl Game<'_> {
         Ok(self.native_invocation(context.literals, arguments))
     }
 
+    /// Dispatch raw input before parsing a registered player command.
+    fn run_registered_player_command(&mut self, line: &str, permission: u8) -> bool {
+        if !mod_api::__private::listened(mod_api::HookId::RegisteredPlayerCommand) {
+            return false;
+        }
+        let Some(player) = self.native_acting_player() else {
+            return false;
+        };
+        let mut handled = false;
+        self.native_registered_player_command(player, permission, line, &mut handled);
+        handled
+    }
+
     /// A guest's command for the mods, inside their swap
     /// (`run_guest_command`): true when one ran it.
     pub(super) fn perform_native_command(&mut self, conn: u32, permission: u8, line: &str) -> bool {
@@ -2229,13 +2243,7 @@ impl Game<'_> {
             return false;
         }
         let previous = std::mem::replace(&mut self.ui.registries.permission, permission);
-        let mut handled = false;
-        if mod_api::__private::listened(mod_api::HookId::RegisteredPlayerCommand)
-            && let Some(player) = self.native_acting_player()
-        {
-            self.native_registered_player_command(player, permission, line, &mut handled);
-        }
-        if !handled {
+        if !self.run_registered_player_command(line, permission) {
             self.run_command(line);
         }
         self.ui.registries.permission = previous;

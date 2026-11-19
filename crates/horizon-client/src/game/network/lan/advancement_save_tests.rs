@@ -12,7 +12,7 @@ mod connected_advancement_save_tests {
             .expect("actual registered dedicated command");
         let (root, ctx) = (parsed.context.clone(), ctx.clone());
         assert_eq!(
-            game.run_chain(&root, &ctx, &parsed.input).unwrap(),
+            game.run_chain(&root, &ctx).unwrap(),
             if text == "reload" { 0 } else { 1 },
             "{text}"
         );
@@ -186,7 +186,7 @@ mod connected_advancement_preservation_tests {
             .expect("actual registered dedicated command");
         let (root, ctx) = (parsed.context.clone(), ctx.clone());
         assert_eq!(
-            game.run_chain(&root, &ctx, &parsed.input).unwrap(),
+            game.run_chain(&root, &ctx).unwrap(),
             if text == "reload" { 0 } else { 1 },
             "{text}"
         );
@@ -385,9 +385,7 @@ mod connected_advancement_preservation_tests {
             let dispatcher = horizon_client::command::vanilla::build_for(false, true);
             let parsed = dispatcher.parse("save-all", &game.ui.registries);
             let (ctx, _) = parsed.executable().unwrap();
-            let error = game
-                .run_chain(&parsed.context, ctx, &parsed.input)
-                .unwrap_err();
+            let error = game.run_chain(&parsed.context, ctx).unwrap_err();
             assert_eq!(error.key, "command.unknown.command", "{role:?}");
         }
         fs::remove_dir_all(&dir).unwrap();

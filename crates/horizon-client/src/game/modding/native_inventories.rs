@@ -14,10 +14,45 @@ use horizon_client::{
 };
 use horizon_core::nbt::{JavaString, Tag};
 use mod_api::{
-    __private::game::Fields, PlayerInventoryError as Error, PlayerInventoryKind as Kind,
+    __private::game::Fields, PlayerInventoryError as Error, PlayerInventoryKind,
     PlayerInventoryMove, PlayerInventorySnapshot, PlayerRef, TransactionLifecycle,
 };
 use std::path::Path;
+
+/// Which of the two inventories to inspect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NativeInventoryKind {
+    /// The player's main inventory, armour and offhand.
+    Player,
+    /// The player's ender chest.
+    Ender,
+}
+
+impl NativeInventoryKind {
+    pub(crate) fn size(self) -> usize {
+        match self {
+            Self::Player => 41,
+            Self::Ender => 27,
+        }
+    }
+}
+
+impl From<PlayerInventoryKind> for NativeInventoryKind {
+    fn from(kind: PlayerInventoryKind) -> Self {
+        match kind {
+            PlayerInventoryKind::Player => Self::Player,
+            PlayerInventoryKind::Ender => Self::Ender,
+            _ => unreachable!("unsupported player inventory"),
+        }
+    }
+}
+
+/// The legacy inventory record kept available to declared internals users.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct NativeInventory {
+    pub slots: Vec<Option<ItemStack>>,
+    pub online: bool,
+}
 
 /// `Level.inventory`'s slot numbers (the file's) for our 41.
 fn file_slot(i: usize) -> Option<u8> {
@@ -29,9 +64,9 @@ fn file_slot(i: usize) -> Option<u8> {
     }
 }
 
-fn guest_slots(g: &Guest, kind: Kind) -> Vec<Option<ItemStack>> {
+fn guest_slots(g: &Guest, kind: NativeInventoryKind) -> Vec<Option<ItemStack>> {
     match kind {
-        Kind::Player => {
+        NativeInventoryKind::Player => {
             let mut s = g.inventory.clone();
             s.resize(36, None);
             // `armor` is head first.
@@ -39,18 +74,17 @@ fn guest_slots(g: &Guest, kind: Kind) -> Vec<Option<ItemStack>> {
             s.push(g.offhand.clone());
             s
         }
-        Kind::Ender => {
+        NativeInventoryKind::Ender => {
             let mut s = g.ender_items.clone();
-            s.resize(27, None);
+            s.resize(kind.size(), None);
             s
         }
-        _ => unreachable!("unknown player inventory"),
     }
 }
 
-fn set_guest_slots(g: &mut Guest, kind: Kind, mut s: Vec<Option<ItemStack>>) {
+fn set_guest_slots(g: &mut Guest, kind: NativeInventoryKind, mut s: Vec<Option<ItemStack>>) {
     match kind {
-        Kind::Player => {
+        NativeInventoryKind::Player => {
             g.offhand = s.pop().flatten();
             for (k, i) in [3, 2, 1, 0].into_iter().enumerate() {
                 g.armor[i] = s[36 + k].take();
@@ -58,15 +92,14 @@ fn set_guest_slots(g: &mut Guest, kind: Kind, mut s: Vec<Option<ItemStack>>) {
             s.truncate(36);
             g.inventory = s;
         }
-        Kind::Ender => g.ender_items = s,
-        _ => unreachable!("unknown player inventory"),
+        NativeInventoryKind::Ender => g.ender_items = s,
     }
 }
 
-fn level_slots(level: &Level, kind: Kind) -> Vec<Option<ItemStack>> {
+fn level_slots(level: &Level, kind: NativeInventoryKind) -> Vec<Option<ItemStack>> {
     match kind {
-        Kind::Player => {
-            let mut s = vec![None; 41];
+        NativeInventoryKind::Player => {
+            let mut s = vec![None; kind.size()];
             for (slot, item, count, damage) in &level.inventory {
                 if let Some(i) = (0..41).find(|&i| file_slot(i) == Some(*slot)) {
                     s[i] = Some(ItemStack {
@@ -79,18 +112,17 @@ fn level_slots(level: &Level, kind: Kind) -> Vec<Option<ItemStack>> {
             }
             s
         }
-        Kind::Ender => {
+        NativeInventoryKind::Ender => {
             let mut s = level.ender_items.clone();
-            s.resize(27, None);
+            s.resize(kind.size(), None);
             s
         }
-        _ => unreachable!("unknown player inventory"),
     }
 }
 
-fn set_level_slots(level: &mut Level, kind: Kind, s: Vec<Option<ItemStack>>) {
+fn set_level_slots(level: &mut Level, kind: NativeInventoryKind, s: Vec<Option<ItemStack>>) {
     match kind {
-        Kind::Player => {
+        NativeInventoryKind::Player => {
             let edited = |slot| (0..41).any(|i| file_slot(i) == Some(slot));
             level.inventory.retain(|(slot, ..)| !edited(*slot));
             level.inventory_components.retain(|slot, _| !edited(*slot));
@@ -105,8 +137,7 @@ fn set_level_slots(level: &mut Level, kind: Kind, s: Vec<Option<ItemStack>>) {
                 }
             }
         }
-        Kind::Ender => level.ender_items = s,
-        _ => unreachable!("unknown player inventory"),
+        NativeInventoryKind::Ender => level.ender_items = s,
     }
 }
 
@@ -160,10 +191,37 @@ enum Side {
 
 /// Another player's inventories, for server mods.
 impl Game<'_> {
+    /// A player's live or saved inventory for native internals callers.
+    #[allow(dead_code, reason = "published native internal")]
+    pub(super) fn native_inventory(
+        &self,
+        uuid: u128,
+        kind: NativeInventoryKind,
+    ) -> Result<NativeInventory, String> {
+        let side = self.native_inventory_side(uuid)?;
+        Ok(self.inventory_snapshot(side, kind))
+    }
+
+    #[allow(dead_code, reason = "published native internal")]
+    fn native_inventory_side(&self, uuid: u128) -> Result<Side, String> {
+        self.inventory_side(uuid).map_err(|error| error.to_string())
+    }
+
+    fn inventory_snapshot(&self, side: Side, kind: NativeInventoryKind) -> NativeInventory {
+        let (slots, online) = match side {
+            Side::Live(i) => {
+                let host = self.lan.as_ref().expect("live");
+                (guest_slots(&host.hub.guests[i], kind), true)
+            }
+            Side::File(level) => (level_slots(&level, kind), false),
+        };
+        NativeInventory { slots, online }
+    }
+
     pub(super) fn server_player_inventory(
         &mut self,
         uuid: u128,
-        kind: Kind,
+        kind: PlayerInventoryKind,
     ) -> Result<PlayerInventorySnapshot, Error> {
         if self
             .lan
@@ -173,18 +231,13 @@ impl Game<'_> {
             self.finish_player_autosaves(true)
                 .map_err(|e| Error::File(e.to_string()))?;
         }
-        let (slots, online) = match self.native_inventory_side(uuid)? {
-            Side::Live(i) => {
-                let host = self.lan.as_ref().expect("live");
-                (guest_slots(&host.hub.guests[i], kind), true)
-            }
-            Side::File(level) => (level_slots(&level, kind), false),
-        };
+        let side = self.inventory_side(uuid)?;
+        let NativeInventory { slots, online } = self.inventory_snapshot(side, kind.into());
         let slots = slots.try_into_api().map_err(|_| Error::InvalidStack)?;
         Ok(PlayerInventorySnapshot::new(slots, online))
     }
 
-    fn native_inventory_side(&self, uuid: u128) -> Result<Side, Error> {
+    fn inventory_side(&self, uuid: u128) -> Result<Side, Error> {
         let Some(host) = self.lan.as_ref() else {
             return Err(Error::NoServer);
         };
@@ -220,6 +273,17 @@ impl Game<'_> {
     /// (`server_player_inventory`); at most one may be a file, which is written
     /// before the live side changes. Their screens follow with the tick's
     /// sync.
+    #[allow(dead_code, reason = "published native internal")]
+    pub(super) fn native_move_stack(
+        &mut self,
+        from: (u128, NativeInventoryKind, usize),
+        expected: &ItemStack,
+        to: (u128, NativeInventoryKind),
+    ) -> Result<(), String> {
+        self.move_inventory_stack(from, to, |stack| Ok(stack == expected))
+            .map_err(|error| error.to_string())
+    }
+
     pub(super) fn server_move_inventory_stack(
         &mut self,
         request: &PlayerInventoryMove,
@@ -229,6 +293,27 @@ impl Game<'_> {
         }
         let (from_uuid, from_kind, from_slot) = request.from;
         let (to_uuid, to_kind) = request.to;
+        self.move_inventory_stack(
+            (from_uuid, from_kind.into(), from_slot as usize),
+            (to_uuid, to_kind.into()),
+            |stack| {
+                let stack = stack
+                    .clone()
+                    .try_into_api()
+                    .map_err(|_| Error::InvalidStack)?;
+                Ok(stack == request.expected)
+            },
+        )
+    }
+
+    fn move_inventory_stack(
+        &mut self,
+        from: (u128, NativeInventoryKind, usize),
+        to: (u128, NativeInventoryKind),
+        matches: impl FnOnce(&ItemStack) -> Result<bool, Error>,
+    ) -> Result<(), Error> {
+        let (from_uuid, from_kind, from_slot) = from;
+        let (to_uuid, to_kind) = to;
         if from_uuid == to_uuid && from_kind == to_kind {
             return Err(Error::SameInventory);
         }
@@ -242,11 +327,11 @@ impl Game<'_> {
             self.finish_player_autosaves(true)
                 .map_err(|e| Error::File(e.to_string()))?;
         }
-        let a = self.native_inventory_side(from_uuid)?;
+        let a = self.inventory_side(from_uuid)?;
         let b = if from_uuid == to_uuid {
             None
         } else {
-            Some(self.native_inventory_side(to_uuid)?)
+            Some(self.inventory_side(to_uuid)?)
         };
         if matches!(a, Side::File(_)) && matches!(b, Some(Side::File(_))) {
             return Err(Error::BothAway);
@@ -259,20 +344,14 @@ impl Game<'_> {
         };
         let mut src = read(&a, from_kind);
         let mut dst = read(b.as_ref().unwrap_or(&a), to_kind);
-        let source = src.get_mut(from_slot as usize).ok_or(Error::StackChanged)?;
+        let source = src.get_mut(from_slot).ok_or(Error::StackChanged)?;
         let stack = source.take().ok_or(Error::StackChanged)?;
-        if stack
-            .clone()
-            .try_into_api()
-            .map_err(|_| Error::InvalidStack)?
-            != request.expected
-        {
+        if !matches(&stack)? {
             return Err(Error::StackChanged);
         }
         let room = match to_kind {
-            Kind::Player => 36,
-            Kind::Ender => 27,
-            _ => unreachable!("unknown player inventory"),
+            NativeInventoryKind::Player => 36,
+            NativeInventoryKind::Ender => 27,
         };
         if !super::native_menus::fit(&mut dst[..room], std::slice::from_ref(&stack), &max) {
             return Err(Error::NoRoom);
@@ -285,8 +364,10 @@ impl Game<'_> {
                     set_level_slots(&mut level, kind, slots);
                     let tag = saved_inventory_tag(
                         &level,
-                        kind == Kind::Player || other == Some(Kind::Player),
-                        kind == Kind::Ender || other == Some(Kind::Ender),
+                        kind == NativeInventoryKind::Player
+                            || other == Some(NativeInventoryKind::Player),
+                        kind == NativeInventoryKind::Ender
+                            || other == Some(NativeInventoryKind::Ender),
                     );
                     write_dat(&playerdata::path(&world, uuid), tag)
                         .map_err(|e| Error::File(e.to_string()))?;
@@ -392,10 +473,10 @@ mod tests {
         s[36] = Some(stack("minecraft:iron_boots", 1));
         s[39] = Some(stack("minecraft:iron_helmet", 1));
         s[40] = Some(stack("minecraft:shield", 1));
-        set_level_slots(&mut level, Kind::Player, s.clone());
+        set_level_slots(&mut level, NativeInventoryKind::Player, s.clone());
         let slots: Vec<u8> = level.inventory.iter().map(|e| e.0).collect();
         assert_eq!(slots, [0, 35, 100, 103, 150]);
-        assert_eq!(level_slots(&level, Kind::Player), s);
+        assert_eq!(level_slots(&level, NativeInventoryKind::Player), s);
     }
 
     #[test]
@@ -414,20 +495,22 @@ mod tests {
             let apple = stack("minecraft:apple", 3);
             let mut ender = vec![None; 27];
             ender[5] = Some(apple.clone());
-            set_level_slots(&mut level, Kind::Ender, ender);
+            set_level_slots(&mut level, NativeInventoryKind::Ender, ender);
             let Tag::Compound(mut original) = level.player_tag() else {
                 unreachable!()
             };
             original.insert("untouched".into(), Tag::Long(123));
             write_dat(&file, Tag::Compound(original)).unwrap();
 
-            let away = PlayersServerHost::server_player_inventory(game, 42, Kind::Ender).unwrap();
+            let away =
+                PlayersServerHost::server_player_inventory(game, 42, PlayerInventoryKind::Ender)
+                    .unwrap();
             assert!(!away.online);
             assert_eq!(away.slots[5], Some(apple.try_into_api().unwrap()));
             let request = PlayerInventoryMove::new(
-                (42, Kind::Ender, 5),
+                (42, PlayerInventoryKind::Ender, 5),
                 away.slots[5].clone().unwrap(),
-                (12, Kind::Player),
+                (12, PlayerInventoryKind::Player),
             );
             PlayersServerHost::server_move_inventory_stack(game, &request).unwrap();
             assert_eq!(
@@ -435,7 +518,8 @@ mod tests {
                 Err(Error::StackChanged)
             );
             let online =
-                PlayersServerHost::server_player_inventory(game, 12, Kind::Player).unwrap();
+                PlayersServerHost::server_player_inventory(game, 12, PlayerInventoryKind::Player)
+                    .unwrap();
             assert!(online.online);
             assert_eq!(
                 online
@@ -449,7 +533,13 @@ mod tests {
             let saved = read_dat(&file).unwrap();
             assert_eq!(saved.get("untouched"), Some(&Tag::Long(123)));
             assert_eq!(saved.get("XpLevel"), Some(&Tag::Int(7)));
-            assert!(level_slots(&read_level(dir.path(), 42).unwrap(), Kind::Ender)[5].is_none());
+            assert!(
+                level_slots(
+                    &read_level(dir.path(), 42).unwrap(),
+                    NativeInventoryKind::Ender
+                )[5]
+                .is_none()
+            );
         });
     }
 
@@ -469,23 +559,23 @@ mod tests {
         level.ender_items[2] = Some(stack("minecraft:diamond", 3));
         let mut s = vec![None; 41];
         s[4] = Some(stack("minecraft:bread", 12));
-        set_level_slots(&mut level, Kind::Player, s);
+        set_level_slots(&mut level, NativeInventoryKind::Player, s);
         write_dat(&file, level.player_tag()).unwrap();
         let mut back = read_level(&dir, uuid).unwrap();
         assert_eq!(back.health, 13.0);
         assert_eq!(back.xp_level, 7);
         assert_eq!(
-            level_slots(&back, Kind::Ender)[2],
+            level_slots(&back, NativeInventoryKind::Ender)[2],
             Some(stack("minecraft:diamond", 3))
         );
-        let mut inv = level_slots(&back, Kind::Player);
+        let mut inv = level_slots(&back, NativeInventoryKind::Player);
         assert_eq!(inv[4], Some(stack("minecraft:bread", 12)));
         inv[4] = None;
-        set_level_slots(&mut back, Kind::Player, inv);
+        set_level_slots(&mut back, NativeInventoryKind::Player, inv);
         write_dat(&file, back.player_tag()).unwrap();
         let again = read_level(&dir, uuid).unwrap();
         assert!(
-            level_slots(&again, Kind::Player)
+            level_slots(&again, NativeInventoryKind::Player)
                 .iter()
                 .all(Option::is_none)
         );

@@ -683,11 +683,7 @@ mod connected_spawnpoint_rotation_tests {
             .executable()
             .expect("actual registered dedicated command");
         let (root, ctx) = (parsed.context.clone(), ctx.clone());
-        assert_eq!(
-            game.run_chain(&root, &ctx, &parsed.input).unwrap(),
-            1,
-            "{text}"
-        );
+        assert_eq!(game.run_chain(&root, &ctx).unwrap(), 1, "{text}");
         assert!(
             !game.chat_capture.take().unwrap().is_empty(),
             "actual command feedback {text}"

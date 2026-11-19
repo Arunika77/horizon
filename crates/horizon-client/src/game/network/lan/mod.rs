@@ -5223,16 +5223,10 @@ pub(crate) mod world_spawn_sync_tests {
             // RespawnData.of(level.dimension(), ..): the same block set from the
             // End is a changed RespawnData, sent with the End as its dimension.
             game.as_console(|game| {
-                assert!(
-                    game.run_command("execute in minecraft:the_end run setworldspawn 100 140 -20")
-                )
+                assert!(game.run_command("execute in minecraft:the_end run setworldspawn 100 140 -20"))
             });
             let sent = spawns(&rx);
-            assert_eq!(
-                sent.len(),
-                1,
-                "a spawn that only changes dimension is broadcast"
-            );
+            assert_eq!(sent.len(), 1, "a spawn that only changes dimension is broadcast");
             assert_eq!(sent[0].pos.dimension, "minecraft:the_end");
             assert_eq!(sent[0].pos.pos, [100, 140, -20]);
             game.as_console(|game| {
@@ -5731,7 +5725,7 @@ mod connected_statistics_save_tests {
             let parsed = dispatcher.parse(command, &game.ui.registries);
             let (ctx, _) = parsed.executable().expect("registered dedicated command");
             let (root, ctx) = (parsed.context.clone(), ctx.clone());
-            assert_eq!(game.run_chain(&root, &ctx, &parsed.input).unwrap(), 1);
+            assert_eq!(game.run_chain(&root, &ctx).unwrap(), 1);
             let messages = game.chat_capture.take().unwrap();
             assert!(
                 messages
@@ -5835,9 +5829,7 @@ mod merchant_restock_tests {
         game.set_allow_commands(true);
         let rx = super::world_spawn_sync_tests::host_for(&mut game);
         let mut host = game.lan.take().unwrap();
-        host.hub
-            .guests
-            .update(0, |guest| guest.dimension = "minecraft:overworld".into());
+        host.hub.guests.update(0, |guest| guest.dimension = "minecraft:overworld".into());
         game.lan = Some(host);
         assert!(game.run_command(concat!(
             "summon villager 0.5 80 2.5 {NoAI:1b,Silent:1b,Xp:20,",
@@ -5891,13 +5883,9 @@ mod merchant_restock_tests {
         live.offers[0].uses = 0;
         live.offers[0].demand = 12;
         game.lan.as_mut().unwrap().hub.guests.update(0, |guest| {
-            guest
-                .effects
-                .add(horizon_client::effects::EffectInstance::new(
-                    "hero_of_the_village",
-                    1000,
-                    0,
-                ));
+            guest.effects.add(horizon_client::effects::EffectInstance::new(
+                "hero_of_the_village", 1000, 0,
+            ));
         });
         game.merchant_restocked(id);
         let restocked = offers();
