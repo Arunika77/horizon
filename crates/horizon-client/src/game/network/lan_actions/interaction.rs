@@ -622,7 +622,7 @@ impl Game<'_> {
         if let Some(index) = self
             .mobs
             .iter()
-            .position(|m| m.id as i32 == id && m.alive())
+            .position(|m| m.id as i32 == id && !m.removed && m.alive())
             .filter(|_| self.dragon.as_ref().is_none_or(|d| d.id as i32 != id))
         {
             let Some(host) = self.lan.as_ref() else {

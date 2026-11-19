@@ -5,6 +5,7 @@
 use horizon_client::{items::ItemStack, mobs::Mob};
 use horizon_core::geometry::Vec3;
 use horizon_protocol::packets::play::{Interact, Serverbound};
+use mod_api::ActionRefused;
 
 fn held(game: &crate::game::Game<'_>, conn: u32) -> Option<String> {
     let guest = game.lan.as_ref().unwrap().hub.guest(conn).unwrap();
@@ -46,5 +47,9 @@ fn a_fish_scooped_up_this_tick_is_not_scooped_up_again() {
         game.lan_guest_packet(13, interact());
         assert_eq!(held(game, 12).as_deref(), Some("minecraft:cod_bucket"));
         assert_eq!(held(game, 13).as_deref(), Some("minecraft:water_bucket"));
+        assert!(matches!(
+            game.guest_attack(13, 1, 40),
+            Err(ActionRefused::InvalidTarget)
+        ));
     });
 }
