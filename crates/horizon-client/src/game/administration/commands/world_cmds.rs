@@ -199,7 +199,7 @@ impl Game<'_> {
     ) -> bool {
         // Resolve the damage registry at the shared command/API boundary before
         // any target-specific path can mutate state or map it to a DamageKind.
-        if self.health_resources.damage.id(ty).is_none() {
+        if self.motion.health.damage.id(ty).is_none() {
             return false;
         }
         let attacker = cause.or(by).and_then(|t| self.network_entity_id(t));
@@ -329,7 +329,9 @@ impl Game<'_> {
                     let attack = self.current_attack();
                     let hurt = self
                         .as_guest(conn, |g| {
-                            g.with_attack(attack, |g| g.command_damage_mob(id, amount, damage, bullet))
+                            g.with_attack(attack, |g| {
+                                g.command_damage_mob(id, amount, damage, bullet)
+                            })
                         })
                         .unwrap_or(false);
                     if hurt && let Some(host) = self.lan.as_mut() {
@@ -449,7 +451,13 @@ impl Game<'_> {
     /// `Zombie.hurtServer`'s reinforcement requests before the command returns.
     /// Health-changing hits also raise their damage vibration before return.
     /// `by_shulker_bullet` triggers a shulker's projectile response on an accepted hit.
-    fn command_damage_mob(&mut self, id: u32, amount: f32, damage: Damage, by_shulker_bullet: bool) -> bool {
+    fn command_damage_mob(
+        &mut self,
+        id: u32,
+        amount: f32,
+        damage: Damage,
+        by_shulker_bullet: bool,
+    ) -> bool {
         let attack = self.combat.attack();
         let mut reinforcements = Vec::new();
         let mut health_changed = false;
