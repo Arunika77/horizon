@@ -1630,6 +1630,11 @@ impl Game<'_> {
     }
 }
 
+/// The chunk of a raid's centre.
+fn raid_chunk(center: [i32; 3]) -> (i32, i32) {
+    (center[0] >> 4, center[2] >> 4)
+}
+
 #[cfg(test)]
 #[path = "tests/bed_loss.rs"]
 mod bed_loss_tests;
@@ -1677,9 +1682,4 @@ mod entity_ticking_tests {
             );
         });
     }
-}
-
-/// The chunk of a raid's centre.
-fn raid_chunk(center: [i32; 3]) -> (i32, i32) {
-    (center[0] >> 4, center[2] >> 4)
 }
