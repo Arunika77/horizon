@@ -457,9 +457,9 @@ enum Land {
 }
 
 /// Whether region game `w` has something for the server's thread, so its region must come back: commands, menus
-/// of native mods, a player dead or leaving.
+/// of native mods, a player dead or leaving, a raid (`region_raids_want_home`).
 fn wants_land(w: &Game<'_>) -> bool {
-    if !w.level_teleports.is_empty() || !w.server_trips.is_empty() {
+    if !w.level_teleports.is_empty() || !w.server_trips.is_empty() || w.region_raids_want_home() {
         return true;
     }
     let Some(h) = w.lan.as_ref() else {
@@ -552,6 +552,8 @@ impl Game<'_> {
         self.world_tables = from.world_tables.clone();
         self.server_loot = from.server_loot.clone();
         self.server_items.clone_from(&from.server_items);
+        // The ban, op and whitelist lists, shared: a ban the anticheat makes on a region's thread is the server's.
+        self.server_lists.clone_from(&from.server_lists);
         self.share_spawn_conditions();
         self.copy_tick_settings_from(from);
         self.lend_scoreboard_from(from);
@@ -694,6 +696,7 @@ impl Game<'_> {
                 w.lead_killers.insert(id, v);
             }
         }
+        w.lend_raids_from(self);
         w.world.game_time = self.world.game_time;
         w.world.day_time = self.world.day_time;
         w.world.weather = self.world.weather;
@@ -712,6 +715,7 @@ impl Game<'_> {
         // stale record would outlive its id and be inherited by whichever entity reuses it.
         w.prune_entity_memory();
         self.merge_region_scores(w);
+        self.take_raids_back(w);
         let stand_in = self.world.stand_in();
         let mut region_world = std::mem::replace(&mut w.world, stand_in);
         // Entities the region's chunks loaded that it has not added yet go to the server's list: its next
@@ -822,8 +826,10 @@ impl Game<'_> {
     /// The serial phases that follow always run, on what this thread still holds: what no region owns, and the
     /// whole level in a tick the regions are back.
     pub(super) fn tick_world_regions(&mut self) -> Result<()> {
-        // The End is one region while its dragon fight runs: the fight belongs to the server's thread.
+        // The End is one region while its dragon fight runs: the fight belongs to the server's thread. So is a
+        // level with a raid near a player, or whose raids are not read yet (`raids_let_regions`).
         let fighting = self.dim == Dim::End && !(self.fight.killed || self.fight.previously_killed);
+        let raiding = !self.raids_let_regions();
         if self.regions.worker {
             return Ok(());
         }
@@ -835,9 +841,9 @@ impl Game<'_> {
         {
             self.refill_entity_ids(&pool);
         }
-        if !region_threads_on() || fighting {
-            // The parallel tick went off, or the End's fight began, with regions out: they come back, or their
-            // chunks, entities and players stay frozen away from the server.
+        if !region_threads_on() || fighting || raiding {
+            // The parallel tick went off, the End's fight or a raid began, with regions out: they come back, or
+            // their chunks, entities and players stay frozen away from the server.
             self.land_level_residents();
             return Ok(());
         }
