@@ -865,6 +865,10 @@ impl Hub {
         self.last_clock = from.last_clock;
         self.last_rate = from.last_rate;
         self.mods_loaded = from.mods_loaded;
+        // The region's players are checked on its thread, with the server's settings, flag log and kicks.
+        if self.anticheat.is_some() != from.anticheat.is_some() {
+            self.anticheat = from.anticheat.as_ref().map(|a| Box::new(a.for_region()));
+        }
     }
 
     /// Every region's guests split off at once (`region_of` a connection's region), each guest moved once.
