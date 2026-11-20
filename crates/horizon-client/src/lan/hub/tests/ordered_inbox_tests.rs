@@ -80,6 +80,44 @@ fn leaving_physical_guest_keeps_then_discards_its_queued_input_credit() {
     });
 }
 
+/// Packets held for a player away in a resident region reach its hub in order and none is dropped: the
+/// ones after a packet the server's thread has to see wait with it (`Hub::give_away`).
+#[test]
+fn an_away_players_packets_keep_their_order_around_one_for_the_server() {
+    let (mut hub, _out) = hub_with_a_guest();
+    let conn = hub.guests[0].conn;
+    hub.away.insert(conn);
+    publish_packet(&hub, S::PlayerLoaded(horizon_protocol::packets::Empty));
+    // Any packet `region_local` leaves out reaches past the region.
+    publish_packet(
+        &hub,
+        S::ConfigurationAcknowledged(horizon_protocol::packets::Empty),
+    );
+    publish_packet(&hub, S::ClientTickEnd(horizon_protocol::packets::Empty));
+    with_input_context(|ctx| drop(hub.poll(ctx)));
+    let mut region = hub.region_shell();
+    region.guests.push(hub.guests.remove(0));
+    hub.give_away(&mut region);
+    let inbox: Vec<_> = region.guests[0].inbox.iter().collect();
+    assert!(matches!(
+        inbox.as_slice(),
+        [InboxItem::Packet(S::PlayerLoaded(_), _)]
+    ));
+    let held: Vec<_> = hub
+        .away_events
+        .iter()
+        .map(|(e, _)| match e {
+            NetEvent::Packet(c, p, _) if *c == conn => match **p {
+                S::ConfigurationAcknowledged(_) => "server",
+                S::ClientTickEnd(_) => "tick end",
+                _ => "other",
+            },
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(held, ["server", "tick end"]);
+}
+
 #[test]
 fn derived_action_replies_wait_for_the_next_frozen_receiving_turn() {
     let (mut hub, _out) = hub_with_a_guest();
