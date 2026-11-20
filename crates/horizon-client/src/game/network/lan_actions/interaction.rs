@@ -132,11 +132,15 @@ impl Game<'_> {
             let on = (0..3).all(|k| (point[k] - inside[k]).abs() < 0.1);
             Some(if on { inside } else { middle })
         };
-        let mob_box = self.mobs.iter().find(|m| m.id as i32 == id).map(|m| {
-            let b = m.bounds();
-            let (mn, mx) = (b.min_position(), b.max_position());
-            ([mn.x, mn.y, mn.z], [mx.x, mx.y, mx.z])
-        });
+        let mob_box = self
+            .mobs
+            .iter()
+            .find(|m| m.id as i32 == id && !m.removed)
+            .map(|m| {
+                let b = m.bounds();
+                let (mn, mx) = (b.min_position(), b.max_position());
+                ([mn.x, mn.y, mn.z], [mx.x, mx.y, mx.z])
+            });
         let centre = match mob_box {
             Some((lo, hi)) => visible_aim_point(eye, lo, hi, |p| self.block_between(eye, p)),
             None if self.object_target(id).is_some() => object()?,
