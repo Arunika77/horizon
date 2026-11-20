@@ -5,6 +5,8 @@ use horizon_client::{
     motion::PlayerMotion,
     projectiles::{Projectile, ProjectileKind},
 };
+use crate::game::commands::Target;
+use horizon_core::nbt::Tag;
 use horizon_core::{geometry::Vec3, position::ChunkPos, random::RandomSource};
 use std::sync::Arc;
 fn with_game(test: impl FnOnce(&mut Game<'_>)) {
@@ -764,9 +766,33 @@ fn a_bullet_a_mob_shot_saves_its_owner() {
         game.creatures.projectiles.push(bullet);
         let index = game.creatures.projectiles.len() - 1;
         assert_eq!(game.projectile_owner_uuid(index), Some([114, 0, 0, 99]));
+        let id = game.creatures.projectiles[index].id;
+        let owner_of = |tag: &Tag| tag.get("Owner").cloned();
+        let ints = |u: [i32; 4]| Tag::IntArray(u.to_vec());
+        // `/data get entity` and the chunk save both write the owner's UUID.
+        let command = game.command_target_nbt(Target::Projectile(id)).unwrap();
+        assert_eq!(owner_of(&command), Some(ints([114, 0, 0, 99])));
+        let keys = std::collections::HashSet::from([(0, 0)]);
+        let saved = game.entity_chunks(&keys, false);
+        let tag = saved
+            .iter()
+            .flat_map(|(_, tags)| tags)
+            .find(|t| t.get("id") == Some(&Tag::String("minecraft:shulker_bullet".into())))
+            .unwrap();
+        assert_eq!(owner_of(tag), Some(ints([114, 0, 0, 99])));
+        // A loaded reference wins over the shooter.
         game.creatures
             .projectiles
             .update(index, |p| p.owner_uuid = Some([5, 6, 7, 8]));
         assert_eq!(game.projectile_owner_uuid(index), Some([5, 6, 7, 8]));
+        let command = game.command_target_nbt(Target::Projectile(id)).unwrap();
+        assert_eq!(owner_of(&command), Some(ints([5, 6, 7, 8])));
+        let saved = game.entity_chunks(&keys, false);
+        let tag = saved
+            .iter()
+            .flat_map(|(_, tags)| tags)
+            .find(|t| t.get("id") == Some(&Tag::String("minecraft:shulker_bullet".into())))
+            .unwrap();
+        assert_eq!(owner_of(tag), Some(ints([5, 6, 7, 8])));
     });
 }
