@@ -108,6 +108,15 @@ fn damage_by_a_shulker_bullet_teleports_an_open_shulker() {
                 "summon shulker_bullet 9.5 202 9.5 {UUID:[I;114,0,0,20],NoGravity:1b}"
             )
         );
+        // Give both shulkers a teleport candidate on the fixture's stone floor.
+        for n in [1, 2] {
+            let shulker = game
+                .mobs
+                .iter_mut()
+                .find(|mob| game.persist.uuid_of(mob.id) == Some([114, 0, 0, n]))
+                .unwrap();
+            shulker.random.set_seed(13);
+        }
         let at = |game: &Game<'_>, n: i32| {
             game.mobs
                 .iter()
