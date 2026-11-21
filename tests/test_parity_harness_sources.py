@@ -44,6 +44,31 @@ class ParityHarnessSources(unittest.TestCase):
         self.assertEqual(found - set(allowed), set())
         self.assertEqual(set(allowed) - found, set(), "no longer builds by hand: leave it out of the allowed list")
 
+    def test_harnesses_build_in_the_fast_profile(self):
+        # tools/parity.py builds every profile without thin LTO and with 16 codegen units, so a release build compiles
+        # the fast profile's code once more in the parity prebuild. Not parity harnesses, so they keep release:
+        allowed = {
+            "bench_sprite_mips.py": "a benchmark, building a generated crate that has no fast profile",
+            "compare_prepare.py": "compares the shipped horizon-prepare",
+            "measure_attribute_memory.py": "a memory measurement of the release build",
+            "port_harness.py": "builds horizon-prepare for version ports",
+            "prebuilt_game.py": "the staging tool of the packaged game",
+            "prepare_native_client.py": "prepares the game's resources with the shipped horizon-prepare",
+            "test_wire_wasm_depth.py": "builds a generated wasm crate that has no fast profile",
+        }
+        found = {script.name for script in sorted((ROOT / "tools").glob("**/*.py"))
+                 for node in ast.walk(ast.parse(script.read_text(encoding="utf-8")))
+                 if isinstance(node, ast.List) and release_build(node)}
+        self.assertEqual(found - set(allowed), set())
+        self.assertEqual(set(allowed) - found, set(), "no longer builds in release: leave it out of the allowed list")
+
+
+def release_build(node):
+    """A literal Cargo command in the release profile."""
+    words = [element.value for element in node.elts if isinstance(element, ast.Constant) and isinstance(element.value, str)]
+    return words[:1] == ["cargo"] and ("--release" in words or "--profile=release" in words
+                                       or any(a == "--profile" and b == "release" for a, b in zip(words, words[1:])))
+
 
 def hand_built_fast_program(node):
     """A literal Cargo command building programs in the fast profile with -p flags of its own, no example."""
