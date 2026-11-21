@@ -18,7 +18,7 @@ use super::region_profile::Step;
 use super::{Dim, Game, Mob, Resources};
 use horizon_client::Result;
 use horizon_client::join_seq::{JoinList, Joined, ResidentList};
-use horizon_core::fast_hash::FxHashMap;
+use horizon_core::fast_hash::{FxHashMap, FxHashSet};
 use horizon_core::position::ChunkPos;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -251,11 +251,6 @@ impl Regions {
             usize::MAX => r,
             k => r.filter(|&r| r == k).map(|_| 0),
         }
-    }
-
-    /// The region that owns the block column at `x, z`.
-    pub(super) fn of_block(&self, x: f64, z: f64) -> Option<usize> {
-        self.of_chunk(((x.floor() as i32) >> 4, (z.floor() as i32) >> 4))
     }
 }
 
@@ -1859,7 +1854,7 @@ fn take_sleep(total: &mut (i64, i64, i64), region: (i64, i64, i64)) {
     total.2 = (total.2 - region.2).max(0);
 }
 
-fn split<T>(v: &mut Vec<T>, regions: &Regions, at: impl Fn(&T) -> (f64, f64)) -> Vec<Vec<T>> {
+fn split<T>(v: &mut Vec<T>, regions: &Lending<'_>, at: impl Fn(&T) -> (f64, f64)) -> Vec<Vec<T>> {
     let places: Vec<Option<usize>> = v
         .iter()
         .map(|item| {
@@ -1883,10 +1878,42 @@ fn split<T>(v: &mut Vec<T>, regions: &Regions, at: impl Fn(&T) -> (f64, f64)) ->
     out
 }
 
+/// What a split lends of `layout`: each region's part of the level, but for the chunks the server's streaming has
+/// not finished (`held`: not lit, or not post-processed yet) and what stands or is kept in them, which stay with the
+/// level. A region game neither lights nor post-processes chunks, and its hub sends its players only finished ones:
+/// a chunk lent unfinished was never sent while its region stayed resident, and a player teleported to new ground
+/// waited for it for ever. A held chunk goes to its region with the region's next relend once it is finished.
+pub(super) struct Lending<'a> {
+    layout: &'a Regions,
+    held: &'a FxHashSet<(i32, i32)>,
+}
+
+impl Lending<'_> {
+    fn parts(&self) -> usize {
+        self.layout.parts()
+    }
+
+    fn only_region(&self) -> Option<usize> {
+        self.layout.only_region()
+    }
+
+    /// The region chunk `key` and what is in it are lent to, if any.
+    fn of_chunk(&self, key: (i32, i32)) -> Option<usize> {
+        if self.held.contains(&key) {
+            return None;
+        }
+        self.layout.of_chunk(key)
+    }
+
+    fn of_block(&self, x: f64, z: f64) -> Option<usize> {
+        self.of_chunk(((x.floor() as i32) >> 4, (z.floor() as i32) >> 4))
+    }
+}
+
 /// Split a joined list without replacing the list's residency binding.
 fn split_list<T: Joined, const DIRECT: bool>(
     list: &mut JoinList<T, DIRECT>,
-    regions: &Regions,
+    regions: &Lending<'_>,
     at: impl Fn(&T) -> (f64, f64),
 ) -> Vec<Vec<T>> {
     let mut all = list.drain(..).collect();
@@ -1897,7 +1924,7 @@ fn split_list<T: Joined, const DIRECT: bool>(
 
 fn split_resident<T: Joined>(
     list: &mut ResidentList<T>,
-    regions: &Regions,
+    regions: &Lending<'_>,
     at: impl Fn(&T) -> (f64, f64),
 ) -> Vec<Vec<T>> {
     let mut all = list.drain(..).collect();
@@ -1909,7 +1936,7 @@ fn split_resident<T: Joined>(
 /// A map's entries whose block a region owns, moved into that region's map.
 fn split_map<K: std::hash::Hash + Eq + Copy, V>(
     m: &mut HashMap<K, V>,
-    regions: &Regions,
+    regions: &Lending<'_>,
     at: impl Fn(&K) -> (i32, i32),
 ) -> Vec<HashMap<K, V>> {
     let mut out: Vec<HashMap<K, V>> = (0..regions.parts()).map(|_| HashMap::new()).collect();
@@ -1922,7 +1949,7 @@ fn split_map<K: std::hash::Hash + Eq + Copy, V>(
 
 fn fx_split<K: std::hash::Hash + Eq + Copy, V>(
     m: &mut FxHashMap<K, V>,
-    regions: &Regions,
+    regions: &Lending<'_>,
     at: impl Fn(&K) -> (i32, i32),
 ) -> Vec<FxHashMap<K, V>> {
     let mut out: Vec<FxHashMap<K, V>> = (0..regions.parts()).map(|_| Default::default()).collect();
@@ -1982,9 +2009,21 @@ pub(super) struct LevelSplit {
 }
 
 impl Game<'_> {
-    /// The level in place split into `regions`' parts: each region's chunks, block entities, ticks and
-    /// entities moved out of this game's level; what no region owns stays.
-    pub(super) fn split_level(&mut self, regions: &Regions) -> LevelSplit {
+    /// The level in place split into `layout`'s parts: each region's chunks, block entities, ticks and
+    /// entities moved out of this game's level; what no region owns stays, and so do the chunks the streaming has
+    /// not finished, with what is in them ([`Lending`]).
+    pub(super) fn split_level(&mut self, layout: &Regions) -> LevelSplit {
+        let held: FxHashSet<(i32, i32)> = self
+            .world
+            .chunks
+            .iter()
+            .filter(|(_, c)| !c.lit || !c.postprocess.is_empty())
+            .map(|(&key, _)| key)
+            .collect();
+        let regions = &Lending {
+            layout,
+            held: &held,
+        };
         let n = regions.parts();
         let first = regions.only_region().unwrap_or(0);
         let of_chunk = |key: (i32, i32)| regions.of_chunk(key);
@@ -2182,8 +2221,8 @@ mod tests {
         assert_eq!(r.count, 1);
         let again = Regions::new([], &players, 8);
         assert_eq!(again.count, 1);
-        assert_eq!(again.of_block(-3.5, 0.0), r.of_block(-3.5, 0.0));
-        assert_eq!(r.of_block(-3.5, 0.0), r.of_block(0.0, 0.0));
+        assert_eq!(again.of_chunk((-1, 0)), r.of_chunk((-1, 0)));
+        assert_eq!(r.of_chunk((-1, 0)), r.of_chunk((0, 0)));
     }
 
     #[test]
@@ -2204,12 +2243,29 @@ mod tests {
                 join: Default::default(),
             })
             .collect();
-        let parts = split_list(&mut mobs, &regions, |m| (m.x, 0.0));
+        let lending = Lending {
+            layout: &regions,
+            held: &Default::default(),
+        };
+        let parts = split_list(&mut mobs, &lending, |m| (m.x, 0.0));
         assert_eq!(parts.len(), 1);
         let lent: Vec<u32> = parts[0].iter().map(|m| m.id).collect();
         assert_eq!(lent, [1, 3]);
         // The level keeps the far entity: a save of its chunk still writes it.
         let kept: Vec<u32> = mobs.iter().map(|m| m.id).collect();
         assert_eq!(kept, [2]);
+        // A chunk the streaming has not finished (chunk 1, x = 16..32) stays with the level, and so does what
+        // stands in it.
+        let mut mobs: JoinList<_> = parts.into_iter().flatten().collect();
+        let held = [(1, 0)].into_iter().collect();
+        let lending = Lending {
+            layout: &regions,
+            held: &held,
+        };
+        let parts = split_list(&mut mobs, &lending, |m| (m.x, 0.0));
+        let lent: Vec<u32> = parts[0].iter().map(|m| m.id).collect();
+        assert_eq!(lent, [1]);
+        let kept: Vec<u32> = mobs.iter().map(|m| m.id).collect();
+        assert_eq!(kept, [3]);
     }
 }
