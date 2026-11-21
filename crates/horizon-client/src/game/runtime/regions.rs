@@ -704,6 +704,15 @@ impl Game<'_> {
         w.world.watched = self.world.watched.clone();
     }
 
+    /// The players this game's host holds, and their fishing hooks, bound to this game's own entity table: after
+    /// a region's were lent to it, or came home. A lent player left bound to the server's table had its turns on
+    /// the region's thread take it out of the server's table and put it back there, and a server tick that ended
+    /// in between found it still out and stopped the server (`UnbalancedPass`).
+    pub(super) fn bind_lan_residents(&mut self) {
+        let journal = self.resident_entities.table.borrow().producer();
+        self.bind_specialized_resident_owners(&journal);
+    }
+
     /// Region game `w`'s part of the level back in place (after the level's own data, in region order), with
     /// what its tick left for the server: level events, spills, sounds and particles for the network.
     pub(super) fn take_region_back(
@@ -993,6 +1002,7 @@ impl Game<'_> {
                 shell.hub.set_tracker(tracker);
             }
             w.lan = Some(shell);
+            w.bind_lan_residents();
             let mut slot = Slot::new(w);
             slot.conns = conns;
             slot.fresh = true;
@@ -1442,6 +1452,7 @@ impl Game<'_> {
         slot.game = Some(w);
         slot.landed = true;
         self.lan = host;
+        self.bind_lan_residents();
         // The set of lent chunks loses this region's, in place (the streamer's copy is let go first).
         self.streaming.lent = None;
         let lent = Arc::make_mut(&mut set.lent);
@@ -1509,6 +1520,7 @@ impl Game<'_> {
             shell.hub.set_tracker(tracker);
         }
         w.lan = Some(shell);
+        w.bind_lan_residents();
         self.lan = Some(host);
         let slot = &mut set.games[k];
         slot.game = Some(w);
@@ -1566,6 +1578,7 @@ impl Game<'_> {
             host.hub.restore_guest_order();
         }
         self.lan = host;
+        self.bind_lan_residents();
         self.regions.idle.entry(dim).or_default().extend(back);
         if !lost {
             self.trim_entity_ids();
