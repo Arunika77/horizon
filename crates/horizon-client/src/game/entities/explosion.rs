@@ -1903,7 +1903,7 @@ impl Game<'_> {
                     &mut dropped.stacks,
                     stack,
                     pos,
-                    &|s| items.get(&s.item).map_or(64, |i| i.max_stack),
+                    &|s| drop_max_stack(items, s),
                     |group, count| {
                         if !listened {
                             return;
@@ -2129,8 +2129,15 @@ impl Game<'_> {
     }
 }
 
+/// `ItemStack.getMaxStackSize`, which `ItemEntity.areMergable` and `merge`
+/// read: the stack's own `max_stack_size`, so a loot roll split at it stays
+/// split.
+fn drop_max_stack(items: &horizon_client::items::Items, stack: &ItemStack) -> u32 {
+    stack.max_stack_size(items)
+}
+
 /// `ServerExplosion.addOrAppendStack`: `ItemEntity.areMergable` (same item and
-/// components, combined count within the item's max stack size), then
+/// components, combined count within the stack's max stack size), then
 /// `ItemEntity.merge(.., 16)`.
 fn add_or_append_stack(
     stacks: &mut Vec<([i32; 3], ItemStack)>,
@@ -2829,6 +2836,40 @@ mod tests {
         );
         let counts: Vec<u32> = stacks.iter().map(|(_, s)| s.count).collect();
         assert_eq!(counts, vec![16, 4, 1]);
+    }
+
+    /// A loot roll's 12 stones with a `max_stack_size` of 5, split 5/5/2,
+    /// stay so; plain stones still merge up to 16.
+    #[test]
+    fn drops_merge_within_their_own_max_stack_size() {
+        let items = horizon_client::items::Items::empty();
+        let stone = |count, size: Option<i32>| {
+            let mut stack = ItemStack::new("minecraft:stone", count);
+            if let Some(n) = size {
+                let data = stack.data_mut();
+                data.set_other(
+                    "minecraft:max_stack_size",
+                    Some(horizon_core::nbt::Tag::Int(n)),
+                );
+            }
+            stack
+        };
+        let max = |s: &ItemStack| drop_max_stack(&items, s);
+        let mut stacks = Vec::new();
+        for count in [5, 5, 2] {
+            add_or_append_stack(
+                &mut stacks,
+                stone(count, Some(5)),
+                [0, 0, 0],
+                &max,
+                |_, _| {},
+            );
+        }
+        for _ in 0..20 {
+            add_or_append_stack(&mut stacks, stone(1, None), [0, 0, 0], &max, |_, _| {});
+        }
+        let counts: Vec<u32> = stacks.iter().map(|(_, s)| s.count).collect();
+        assert_eq!(counts, vec![5, 5, 2, 16, 4]);
     }
 
     #[test]
