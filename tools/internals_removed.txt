@@ -1,0 +1,24 @@
+# Internals (tools/check_mod_points_unchanged.py, internals.json) that a pull request removed on purpose.
+#
+# internals.json lists what native mods may name in the engine crates; the check fails when an entry goes. List one here
+# only when a feature is taken out on purpose, so mods that used it break knowingly.
+#
+# One line per entry, as the check's report prints it: path (kind) | #PR | short reason. Lines starting with # are
+# comments.
+
+horizon_client::game::Game<'_>::lod_blue_map (field) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::BlueMap (struct) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::Candidate (struct) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::Change (struct) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::Columns (type) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::Inner (struct) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::Key (type) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::Lowres (struct) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::MapInfo (struct) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::Palette (struct) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::Pixel (struct) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::Server (struct) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::Settings (struct) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::Slot (enum) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::State (struct) | #19554 | BlueMap far terrain removed: it can be a mod
+horizon_client_render::bluemap::Tile (struct) | #19554 | BlueMap far terrain removed: it can be a mod

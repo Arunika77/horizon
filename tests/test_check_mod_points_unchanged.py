@@ -270,7 +270,20 @@ class CompareTests(unittest.TestCase):
                                         {"internals.json": internals(A_FN), "api.rs": "2"}, allow_added=True)
         self.assertEqual(status, 1)
         self.assertIn("Internals removed (1):", text)
-        self.assertIn("never remove one", text)
+        self.assertIn("remove only those tools/internals_removed.txt lists", text)
+
+    def test_a_listed_internals_removal_passes_with_the_flag(self):
+        listed = {"game::B (struct)": ("#9", "feature removed")}
+        status, text = self.run_compare([point("a")], [point("a")], {"internals.json": internals(A_FN, B_STRUCT)},
+                                        {"internals.json": internals(A_FN)}, allow_added=True,
+                                        accepted_internals=listed)
+        self.assertEqual(status, 0)
+        self.assertIn("Internals removed and listed (accepted) (1):", text)
+        # Listing another kind on the same path accepts nothing.
+        status, _ = self.run_compare([point("a")], [point("a")], {"internals.json": internals(A_FN, B_STRUCT)},
+                                     {"internals.json": internals(A_FN)}, allow_added=True,
+                                     accepted_internals={"game::B (enum)": ("#9", "feature removed")})
+        self.assertEqual(status, 1)
 
     def test_one_of_two_kinds_on_a_path_removed_fails(self):
         field, method = ("game::S::x", "field", "01", {}), ("game::S::x", "method", "02", {})

@@ -14,8 +14,9 @@ added, removed (accepted and failing) and changed, and fails on:
 - a difference in loops.json, and a difference in the other generated files that no accepted point change explains (the
   generated API differs whenever a point does). An additive catalog hook can explain its generated catalog and notes
   and its own guest dispatch;
-- a removed internals.json entry (one becoming `shape_only` too), and with --allow-added only that: added and changed
-  entries are listed and pass (`cargo horizon-mod update` reports signature-hash changes for declared internals).
+- a removed internals.json entry (one becoming `shape_only` too) that tools/internals_removed.txt does not list
+  (`path (kind) | #PR | reason`, as the report prints it), and with --allow-added only that: added and changed entries
+  are listed and pass (`cargo horizon-mod update` reports signature-hash changes for declared internals).
 Moving code out of `game/` removes its points: list them in the file. A method of `Game` keeps its name, module path and
 signature, and only its body delegates. A mod that needs a moved function asks for `#[replaceable]` in the lower crate.
 
@@ -64,6 +65,8 @@ MAX_DIFF_LINES = 120
 MAX_LISTED = 40
 ROOT_MARK = "<repository>"
 LIST = "tools/mod_points_removed.txt"
+# Internals removed on purpose (a feature taken out), one `path (kind) | #PR | reason` line each.
+INTERNALS_LIST = "tools/internals_removed.txt"
 # Files the generator writes into the output folder that are not output: phase timings (and incremental-*/ or, from
 # older builds, interfaces-*/, its cache).
 SCRATCH_FILES = {"points-timing.txt"}
@@ -286,9 +289,9 @@ def short(value):
     return text if len(text) <= 80 else text[:77] + "..."
 
 
-def load_accepted(path):
-    """tools/mod_points_removed.txt: point name -> (PR, reason). One `name | #PR | reason` line per point; blank lines
-    and lines starting with `#` are comments. A missing file lists nothing."""
+def load_accepted(path, what="point name"):
+    """tools/mod_points_removed.txt (or tools/internals_removed.txt): name -> (PR, reason). One `name | #PR | reason`
+    line per entry; blank lines and lines starting with `#` are comments. A missing file lists nothing."""
     accepted = {}
     path = Path(path)
     if not path.is_file():
@@ -298,9 +301,15 @@ def load_accepted(path):
             continue
         parts = [part.strip() for part in line.split("|", 2)]
         if len(parts) != 3 or not all(parts):
-            raise ValueError(f"{path}:{number}: write `point name | #PR | reason`")
+            raise ValueError(f"{path}:{number}: write `{what} | #PR | reason`")
         accepted[parts[0]] = (parts[1], parts[2])
     return accepted
+
+
+def internal_name(key):
+    """An internals key (path, kind, cfg) as the report prints it and tools/internals_removed.txt lists it."""
+    path, kind, cfg = key
+    return f"{path} ({kind}" + (f", cfg {cfg})" if cfg else ")")
 
 
 def normalized(target):
@@ -385,9 +394,9 @@ def classify(removed, changed, base_points, accepted, loops, files):
 
 
 def summary(added, removed_ok, removed_bad, changed, changed_ok, files_added, files_removed, diffs, base_points,
-            head_points, max_lines=MAX_DIFF_LINES, max_listed=MAX_LISTED, internals=None):
-    """The report as a list of lines. `internals` is internals_diff's result, or None when internals.json is the
-    same."""
+            head_points, max_lines=MAX_DIFF_LINES, max_listed=MAX_LISTED, internals=None, internals_ok=None):
+    """The report as a list of lines. `internals` is internals_diff's result with the listed removals left out, or None
+    when internals.json is the same; `internals_ok` maps each listed removal's key to its (PR, reason)."""
     out = []
 
     def listing(title, names, show):
@@ -418,9 +427,10 @@ def summary(added, removed_ok, removed_bad, changed, changed_ok, files_added, fi
             out.append(f"  ... and {len(changed) - max_listed} more")
     if internals is not None:
         for title, keys in zip(("added", "removed", "changed"), internals):
-            listing(f"Internals {title}", keys,
-                    lambda key: f"{key[0]} ({key[1]}" + (f", cfg {key[2]})" if key[2] else ")"))
-        if not any(internals):
+            listing(f"Internals {title}", keys, internal_name)
+        listing("Internals removed and listed (accepted)", sorted(internals_ok or {}),
+                lambda key: f"{internal_name(key)}  [{internals_ok[key][0]}: {internals_ok[key][1]}]")
+        if not any(internals) and not internals_ok:
             out.append("internals.json differs, with the same entries.")
     listing("Generated files added", files_added, str)
     listing("Generated files removed", files_removed, str)
@@ -458,10 +468,12 @@ def verdict(added, removed_bad, changed_bad, files_added, files_removed, diffs, 
     return 0
 
 
-def compare(base_dir, head_dir, allow_added=False, base_root=None, head_root=None, accepted=None, files=None):
+def compare(base_dir, head_dir, allow_added=False, base_root=None, head_root=None, accepted=None, files=None,
+            accepted_internals=None):
     """Compare two snapshot folders, print the report and return the exit status. `accepted` is the removal file's
-    entries (default: tools/mod_points_removed.txt) and `files` a function giving the checked-in files a point may be
-    named in (default: the repository's)."""
+    entries (default: tools/mod_points_removed.txt), `accepted_internals` the internals removal file's (default:
+    tools/internals_removed.txt) and `files` a function giving the checked-in files a point may be named in (default:
+    the repository's)."""
     base_dir, head_dir = Path(base_dir), Path(head_dir)
     base_points, head_points = load_points(base_dir / POINTS), load_points(head_dir / POINTS)
     added, removed, changed = diff_points(base_points, head_points)
@@ -484,6 +496,13 @@ def compare(base_dir, head_dir, allow_added=False, base_root=None, head_root=Non
             unreadable = [f"internals.json differs and does not parse as entries ({type(error).__name__}: {error})"]
         diffs = [(name, unreadable if name == INTERNALS else lines) for name, lines in diffs
                  if name != INTERNALS or unreadable]
+    internals_ok = {}
+    if internals is not None and internals[1]:
+        if accepted_internals is None:
+            accepted_internals = load_accepted(ROOT / INTERNALS_LIST, "path (kind)")
+        internals_ok = {key: accepted_internals[internal_name(key)] for key in internals[1]
+                        if internal_name(key) in accepted_internals}
+        internals = (internals[0], [key for key in internals[1] if key not in internals_ok], internals[2])
     if removed and files is None:
         files = repo_texts
     if accepted is None:
@@ -501,7 +520,7 @@ def compare(base_dir, head_dir, allow_added=False, base_root=None, head_root=Non
     status = verdict(added, removed_bad, changed_bad, files_added, files_removed, diffs, explained, allow_added,
                      internals)
     lines = summary(added, removed_ok, removed_bad, changed, changed_ok, files_added, files_removed, diffs,
-                    base_points, head_points, internals=internals)
+                    base_points, head_points, internals=internals, internals_ok=internals_ok)
     counts = (f"Mod points: {len(added)} added, {len(removed)} removed ({len(removed_ok)} accepted, "
               f"{len(removed_bad)} failing), {len(changed)} changed ({len(changed_ok)} accepted, "
               f"{len(changed_bad)} failing).")
@@ -522,7 +541,8 @@ def compare(base_dir, head_dir, allow_added=False, base_root=None, head_root=Non
         if any(name in STRICT_FILES for name, _ in diffs) or any(name in STRICT_FILES for name in files_removed):
             print("loops.json has to match the base exactly, and the head has to write it and internals.json.")
         if internals is not None and (internals[1] or not allow_added):
-            print("internals.json may add or change entries with --allow-added, never remove one.")
+            print("internals.json may add or change entries with --allow-added, and remove only those "
+                  f"{INTERNALS_LIST} lists (path (kind) | #PR | reason).")
         if (diffs or files_added or files_removed) and not explained:
             print("The generated API differs from the base with no accepted point change.")
     return status

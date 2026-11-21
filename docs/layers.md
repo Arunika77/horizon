@@ -624,7 +624,9 @@ prints how many points were added, removed (accepted and failing) and changed. I
 - the generated API differs without an accepted point change, or `loops.json` differs at all. With `--allow-added`,
   a new catalog hook may add its own guest dispatch and update the catalog and hook notes. Existing guest dispatch
   must match after accounting for the new hook and generated helper numbering;
-- `internals.json` loses an entry, or, without `--allow-added`, differs at all. With the flag, added and changed entries
+- `internals.json` loses an entry that `tools/internals_removed.txt` does not list, or, without `--allow-added`, differs
+  at all. List a removal only when a feature is taken out on purpose, one `path (kind) | #PR | reason` line each, copied
+  from the report. With the flag, added and changed entries
   are listed and pass: `cargo horizon-mod update` already reports signature-hash changes for declared internals.
   Becoming `shape_only`, or losing a `cfg` variant, counts as a removal.
 
