@@ -1783,6 +1783,11 @@ impl Game<'_> {
             packets_drained: false,
         };
         self.update_chunk_tickets();
+        // The anticheat's timer is given its players' time since their last tick here: a region's hub does not
+        // poll the network, where the server's hub does it.
+        if let Some(host) = self.lan.as_mut() {
+            host.hub.anticheat_tick(self.clock.rate());
+        }
         // Its players' packets first, before its block ticks, as vanilla.
         self.tick_lan_packets();
         self.begin_ordered_ticks();

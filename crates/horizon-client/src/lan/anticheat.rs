@@ -22,8 +22,6 @@ pub struct Anticheat {
     log: Arc<Mutex<Option<LogWriter>>>,
     /// The players' kicks by check, read from `strikes` at the first kick.
     strikes: Arc<Mutex<Option<Strikes>>>,
-    /// When the previous server tick started, for the timer's balance.
-    last_tick: Option<Instant>,
     tick_rate: f32,
 }
 
@@ -33,19 +31,17 @@ impl Anticheat {
             config,
             log: Arc::default(),
             strikes: Arc::default(),
-            last_tick: None,
             tick_rate: 20.0,
         }
     }
 
     /// The anticheat of a resident region's hub (`game/runtime/regions.rs`), whose players' packets it
-    /// handles on the region's thread: the same settings, flag log and kicks, a timer clock of its own.
+    /// handles on the region's thread: the same settings, flag log and kicks.
     pub fn for_region(&self) -> Self {
         Self {
             config: self.config.clone(),
             log: Arc::clone(&self.log),
             strikes: Arc::clone(&self.strikes),
-            last_tick: None,
             tick_rate: self.tick_rate,
         }
     }
@@ -180,21 +176,26 @@ impl Hub {
         self.anticheat = config.enabled.then(|| Box::new(Anticheat::new(config)));
     }
 
-    /// The start of a server tick: the time since the previous one fills each player's timer balance.
-    pub(super) fn anticheat_tick(&mut self, tick_rate: f32) {
+    /// The start of a server tick (or of a resident region's, `game/runtime/regions.rs`): the time since each
+    /// player's balance was last given it fills the balance. The clock is the player's, so one that moves between
+    /// the server's hub and a region's is given every moment once.
+    pub fn anticheat_tick(&mut self, tick_rate: f32) {
         let Some(ac) = self.anticheat.as_deref_mut() else {
             return;
         };
-        let now = Instant::now();
-        let elapsed = ac.last_tick.replace(now).map(|t| now - t);
         if !ac.config.runs(Check::Timer) {
             return;
         }
+        let now = Instant::now();
         // A new tick rate reaches the client a little later: both start again.
         let restart = ac.tick_rate != tick_rate;
         ac.tick_rate = tick_rate;
-        let ms = elapsed.map_or(0.0, |e| e.as_secs_f64() * 1000.0);
         self.guests.update_all(|g| {
+            let ms = g
+                .anticheat
+                .timer_at
+                .replace(now)
+                .map_or(0.0, |t| (now - t).as_secs_f64() * 1000.0);
             if restart {
                 g.anticheat.timer.reset();
             }

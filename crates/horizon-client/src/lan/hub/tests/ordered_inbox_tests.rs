@@ -118,6 +118,23 @@ fn an_away_players_packets_keep_their_order_around_one_for_the_server() {
     assert_eq!(held, ["server", "tick end"]);
 }
 
+/// The timer's balance is given a player's own time since it was last ticked, by whichever hub ticks it: a player
+/// lent to a resident region is given its time there by the region's hub, whose clock had not run for it.
+#[test]
+fn the_timer_gives_a_lent_player_its_time_in_the_region() {
+    let (mut hub, _out) = hub_with_a_guest();
+    hub.set_anticheat(horizon_anticheat::Config::default());
+    hub.anticheat_tick(20.0);
+    let mut region = hub.region_shell();
+    region.guests.push(hub.guests.remove(0));
+    for _ in 0..2 {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        region.anticheat_tick(20.0);
+    }
+    let ms = region.guests[0].anticheat.timer.ms;
+    assert!(ms >= 300.0, "300 ms passed, the balance was given {ms:.0}");
+}
+
 #[test]
 fn derived_action_replies_wait_for_the_next_frozen_receiving_turn() {
     let (mut hub, _out) = hub_with_a_guest();
