@@ -482,6 +482,16 @@ def populate(server, spec, seed):
             server.console(f'execute at @r run summon {kind} ~{dx} ~3 ~{dz} {data}'.rstrip())
 
 
+def stopped_lines(lines):
+    """The lines that say the game stopped and the supervisor started it again, with the error before each."""
+    out = []
+    for i, line in enumerate(lines):
+        if 'The game stopped unexpectedly' in line:
+            cause = next((l for l in reversed(lines[max(0, i - 30):i]) if 'ERROR' in l or 'panicked' in l), None)
+            out.append(f'{cause.strip()} -> {line.strip()}' if cause else line.strip())
+    return out
+
+
 def run_once(kind, bots, behaviour, args, out):
     name = f'{kind}-{behaviour}-{bots}'
     directory = out / name
@@ -617,6 +627,10 @@ def run_once(kind, bots, behaviour, args, out):
         })
         if profiling:
             finish_profile(server, directory, result)
+        # A game that stopped was started again by the supervisor: what was measured after it is an empty
+        # server, not this run.
+        if stopped := stopped_lines(server.since(0)):
+            result['error'] = 'the game stopped during the run: ' + ' / '.join(stopped[:2])
     except Exception as e:  # a failed run is reported, and the next one still runs
         result['error'] = str(e)
     finally:
