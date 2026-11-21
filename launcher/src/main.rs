@@ -261,8 +261,6 @@ struct Launcher {
     settings_marked: usize,
     /// About's credit picture was asked for, and what came back.
     credit_asked: bool,
-    /// The Game version dropdown of the instance dialog and sheet is open.
-    version_menu: bool,
     credit_picture: Option<std::sync::Arc<gpui::Image>>,
     /// The instance sheet's Storage: which instance was measured, and its size once known.
     sheet_size: Option<(String, Option<u64>)>,

@@ -89,7 +89,6 @@ impl Launcher {
             whats_new_open: None,
             settings_marked: 0,
             credit_asked: false,
-            version_menu: false,
             credit_picture: None,
             sheet_size: None,
             mods_sticky: sticky::Sticky::default(),

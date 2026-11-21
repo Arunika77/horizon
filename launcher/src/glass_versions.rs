@@ -82,19 +82,6 @@ impl Launcher {
         })
     }
 
-    /// How a player gets Latest following each new Nightly again, once Versions holds an older
-    /// one: Use on the newest there, after setting the instance Play starts to Latest on Nightly
-    /// when Use would change only that one.
-    pub(crate) fn follow_again_hint(&self) -> String {
-        match self.selected_instance().filter(|_| !self.use_sets_selection()) {
-            Some(i) => trf(
-                "Set {instance} to Latest on Nightly, then press Use on the newest on Versions to follow new ones",
-                &[("instance", &i.name)],
-            ),
-            None => tr("Press Use on the newest on Versions to follow new ones").to_string(),
-        }
-    }
-
     /// The launcher's version when Use picked one older than the newest installed: what an
     /// instance set to Latest on Nightly plays then, named so "Latest" never says otherwise.
     pub(crate) fn held_version(&self) -> Option<&String> {

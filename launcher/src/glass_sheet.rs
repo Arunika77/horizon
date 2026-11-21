@@ -31,12 +31,12 @@ impl SheetTab {
         SheetTab::Storage,
     ];
 
-    /// The sections `instance` has something to set in: the Launch section is for a Java instance
-    /// (Horizon's own edition runs without Java).
+    /// The sections `instance` has something to set in: Launch and Installation are for a Java
+    /// instance (Horizon's own edition runs without Java, and always plays the newest release).
     fn shown(instance: &Instance) -> impl Iterator<Item = SheetTab> + '_ {
-        SheetTab::ALL
-            .into_iter()
-            .filter(|t| *t != SheetTab::Launch || instance.java.is_some())
+        SheetTab::ALL.into_iter().filter(|t| {
+            !matches!(t, SheetTab::Launch | SheetTab::Installation) || instance.java.is_some()
+        })
     }
 
     /// Its name, icon and the line under its name.
@@ -441,9 +441,7 @@ impl Launcher {
             }
             SheetTab::Installation => {
                 pane = pane.children(self.switch_notice(&editing));
-                if kind == NewKind::Horizon {
-                    pane = pane.child(self.horizon_versions(cx));
-                } else {
+                if kind != NewKind::Horizon {
                     self.load_versions(cx);
                     pane = pane.child(self.minecraft_versions(cx));
                     if kind == NewKind::Modded {

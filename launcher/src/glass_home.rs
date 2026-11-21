@@ -906,14 +906,19 @@ impl Launcher {
     fn version_chip(&self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         let instance = self.selected_instance()?.clone();
         let label = self.sheet_version(&instance);
-        Some(
-            hero_button("home-version", "package-01", label.into())
+        let button = hero_button("home-version", "package-01", label.into());
+        // Horizon's own edition always plays the newest release: only a Java instance has a
+        // version to change.
+        Some(if instance.java.is_some() {
+            button
                 .tooltip(ui::tip(tr("Change the version in instance settings")))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.open_instance_sheet(instance.clone(), glass_sheet::SheetTab::Installation);
                     cx.notify();
-                })),
-        )
+                }))
+        } else {
+            button
+        })
     }
 
     /// The folder button and its ⋯ (`FolderGroup`), which shows under the pointer or while its

@@ -305,7 +305,6 @@ impl Launcher {
     }
 
     pub(super) fn open_instance_dialog(&mut self, editing: Option<Instance>) {
-        self.version_menu = false;
         // The hook fields start again from the saved instance, not from what was left typed, and
         // so does the memory box.
         self.launch = None;
