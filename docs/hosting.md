@@ -887,8 +887,8 @@ Region ticking trades some of vanilla's behaviour for speed, the way other regio
   delivered yet.
 - **Light** at the border of a region is worked out again when the region comes home.
 - **New terrain** around a player in a region is generated and lit on the server's thread and reaches the player
-  when the region next comes home (within `resident_ticks`), so a player who teleports to new ground waits a
-  little longer for it.
+  once the region has come home for it (one or two `resident_ticks` periods), so a player who teleports to new
+  ground waits a little longer for it.
 
 A region that panics comes home and the level ticks whole for 200 ticks before it is split again; the log says
 `a region of <level> failed`. A save that writes none of the entities in memory logs `regions: save lost entities`:
