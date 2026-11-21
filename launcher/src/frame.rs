@@ -478,8 +478,8 @@ impl Launcher {
             )
         };
 
-        // Add instance: the accent's outline, not the sun gradient, so Play stays the one bright
-        // button on Home.
+        // Add instance: a soft accent fill with no outline, not the sun gradient, so Play stays
+        // the one bright button on Home.
         let add = keyboard(
             track_hover(
                 div()
@@ -491,15 +491,10 @@ impl Launcher {
                     .gap(px(12.))
                     .w_full()
                     .h(px(42.))
-                    .px(px(17.5))
+                    .px(px(18.5))
                     .rounded(px(radius::ROW))
                     .bg(ui::color(self.look.accent).opacity(0.08))
-                    .border_1()
-                    .border_color(ui::color(self.look.accent).opacity(0.5))
-                    .hover(|s| {
-                        s.bg(ui::color(self.look.accent).opacity(0.16))
-                            .border_color(ui::color(self.look.accent).opacity(0.8))
-                    })
+                    .hover(|s| s.bg(ui::color(self.look.accent).opacity(0.16)))
                     .cursor_pointer()
                     .child(ui::icon("plus-sign", 19., ui::color(soft)))
                     .child(
