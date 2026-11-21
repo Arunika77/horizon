@@ -63,14 +63,16 @@ class ParityHarnessSources(unittest.TestCase):
         self.assertEqual(set(allowed) - found, set(), "no longer builds in release: leave it out of the allowed list")
         # tools/parity.py reads -r as --release too.
         commands = ["['cargo', 'build', '-r', '-p', 'x']", "['cargo', 'run', '--profile', 'release']",
-                    "['cargo', 'test', '--profile=release']", "['cargo', 'build', '--profile', 'fast', '-p', 'x']"]
+                    "['cargo', 'test', '--profile=release']", "['cargo', 'build', '--profile', 'fast', '-p', 'x']",
+                    "['cargo', 'run', '--profile', 'fast', '--example', 'probe', '--', '-r']"]
         self.assertEqual([release_build(ast.parse(command, mode="eval").body) for command in commands],
-                         [True, True, True, False])
+                         [True, True, True, False, False])
 
 
 def release_build(node):
-    """A literal Cargo command in the release profile."""
+    """A literal Cargo command in the release profile. Words after `--` are the program's own arguments."""
     words = [element.value for element in node.elts if isinstance(element, ast.Constant) and isinstance(element.value, str)]
+    words = words[:words.index("--")] if "--" in words else words
     return words[:1] == ["cargo"] and bool({"--release", "-r", "--profile=release"} & set(words)
                                        or any(a == "--profile" and b == "release" for a, b in zip(words, words[1:])))
 
