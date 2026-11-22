@@ -1681,6 +1681,65 @@ mod tests {
             shared > least_shared,
             "most updates are shared bodies ({shared}, odds {move_odds:?})"
         );
+        assert!(shared > 1_000, "most updates are shared bodies ({shared})");
+    }
+
+    /// The floor of the receiver x mover check, on flat arrays: the source's block compared with
+    /// the one its connections last showed, and the receiver's distance to it against the range
+    /// (`ignores`). Run with `cargo test --release ... flat_pair_floor -- --ignored --nocapture`
+    /// under `perf stat -e instructions:u`: the prototype's cost per ordered pair.
+    #[test]
+    #[ignore = "daily"]
+    fn flat_pair_floor() {
+        let n = 200usize;
+        let mut seed = 12345u64;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed % 1000) as f64 / 1000.0
+        };
+        let (mut x, mut y, mut z) = (vec![0.0f64; n], vec![0.0f64; n], vec![0.0f64; n]);
+        let mut last = vec![[0i32; 3]; n];
+        for i in 0..n {
+            x[i] = rnd() * 6.0;
+            y[i] = -36.0;
+            z[i] = rnd() * 6.0;
+            last[i] = [
+                x[i].floor() as i32,
+                y[i].floor() as i32,
+                z[i].floor() as i32,
+            ];
+        }
+        let range2 = PLAYER_RANGE * PLAYER_RANGE;
+        let ticks = 2_000;
+        let mut changed = 0u64;
+        for t in 0..ticks {
+            // Each source steps a fraction of a block; its block changes now and then.
+            for i in 0..n {
+                x[i] += 0.2 * (((t + i) % 7) as f64 / 7.0);
+            }
+            for m in 0..n {
+                let b = [
+                    x[m].floor() as i32,
+                    y[m].floor() as i32,
+                    z[m].floor() as i32,
+                ];
+                for r in 0..n {
+                    if r == m {
+                        continue;
+                    }
+                    let (dx, dy, dz) = (x[r] - x[m], y[r] - y[m], z[r] - z[m]);
+                    if b == last[m] && dx * dx + dy * dy + dz * dz < range2 {
+                        continue;
+                    }
+                    changed += 1;
+                }
+                last[m] = b;
+            }
+        }
+        let pairs = (ticks * n * (n - 1)) as u64;
+        println!("flat floor: {pairs} ordered pairs, {changed} needing a packet");
     }
 
     /// A crowd of `n` bots in a few chunks, `movers` percent of them walking, the moves worked out by
