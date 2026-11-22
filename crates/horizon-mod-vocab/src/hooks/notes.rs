@@ -719,9 +719,7 @@ handle, an entity the client doesn't track and a level it doesn't show:
   a player): it gets inhabited time, thunder and a spawn attempt. The local mob cap then lets mobs spawn there only
   while a non-spectator player is within 128 blocks of the chunk's centre, as vanilla's
   `LocalMobCapCalculator` decides. `level.mod_forced_chunks(host, controller)` lists the controller's tickets as
-  `(owner, [x, z], natural_spawning)`. `chunk.set_transient_forced(host, controller, operation, forced, natural_spawning)`
-  holds a chunk the same way for an operation id the mod picks, until released or the level closes: it is never saved,
-  validated or listed. The other tickets are saved in `data/horizon/mod_chunk_tickets.dat`, never in vanilla's
+  `(owner, [x, z], natural_spawning)`. Tickets are saved in `data/horizon/mod_chunk_tickets.dat`, never in vanilla's
   `chunk_tickets.dat`, under the controller's id. When a world loads, the tickets of an id no loaded mod registers are
   dropped with a warning in the log, as NeoForge documents for a controller nobody registers; so are tickets from a
   file written before controllers, which are keyed by mod id. Outside a mod's hook, for another mod's controller, and for
