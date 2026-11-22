@@ -5066,6 +5066,7 @@ mod death_render;
 use death_render::{dissolve_color, dissolve_mask};
 
 #[cfg(test)]
+#[path = "dragon/tests.rs"]
 mod tests;
 
 #[cfg(test)]

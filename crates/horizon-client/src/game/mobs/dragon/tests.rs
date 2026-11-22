@@ -1,4 +1,3 @@
-
 use super::*;
 
 /// Vanilla 26.3's `EnderDragon.findClosestNode` builds 24 nodes by feeding a
