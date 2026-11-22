@@ -115,6 +115,12 @@ pub enum PlayerInventoryError {
     InvalidStack,
     /// A transaction is active and the file write cannot be rolled back.
     Transaction,
+    /// The player file cannot keep the moved stack: it nests past the save's
+    /// depth limit, so writing it would drop it.
+    Unsaveable,
+    /// Only the backup of the player file could be read. A move would replace
+    /// that backup with the unreadable file, so it is refused; reading still works.
+    BackupOnly,
     /// The player save could not finish or the edited file could not be written.
     File(String),
 }
@@ -133,6 +139,8 @@ impl std::fmt::Display for PlayerInventoryError {
             Self::NoRoom => "no room",
             Self::InvalidStack => "the stack cannot be represented",
             Self::Transaction => "inside an open transaction",
+            Self::Unsaveable => "the player's file cannot keep that stack",
+            Self::BackupOnly => "only the player's backup file is readable",
             Self::File(error) => return write!(f, "the player's file: {error}"),
         })
     }

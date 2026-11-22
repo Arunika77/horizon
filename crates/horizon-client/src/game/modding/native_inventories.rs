@@ -157,11 +157,34 @@ fn read_level(world: &Path, uuid: u128) -> Option<Level> {
     Some(level)
 }
 
-/// Overlay only the edited inventories onto the loaded player file.
-fn saved_inventory_tag(level: &Level, edit_player: bool, edit_ender: bool) -> Tag {
+/// Whether only the `.dat_old` backup of a player's file can be read: a
+/// move would rotate the unreadable primary over that backup.
+fn only_backup_readable(world: &Path, uuid: u128) -> bool {
+    read_dat(&playerdata::path(world, uuid)).is_none()
+}
+
+/// Overlay only the edited inventories onto the loaded player file. Refused
+/// when the file would leave out a stack the edit placed (`Level::player_tag`
+/// drops one nested past the save depth), so a move never clears a live slot
+/// for a stack the file does not keep.
+fn saved_inventory_tag(level: &Level, edit_player: bool, edit_ender: bool) -> Result<Tag, Error> {
     let written = level.player_tag();
+    let mut kept = Level::default();
+    kept.read_player(&written);
+    for (kind, edited) in [
+        (NativeInventoryKind::Player, edit_player),
+        (NativeInventoryKind::Ender, edit_ender),
+    ] {
+        let lost = level_slots(level, kind)
+            .iter()
+            .zip(level_slots(&kept, kind))
+            .any(|(planned, kept)| planned.is_some() && kept.is_none());
+        if edited && lost {
+            return Err(Error::Unsaveable);
+        }
+    }
     let Some(Tag::Compound(mut original)) = level.player_extra.clone() else {
-        return written;
+        return Ok(written);
     };
     let keys = [
         ("Inventory", edit_player),
@@ -178,7 +201,7 @@ fn saved_inventory_tag(level: &Level, edit_player: bool, edit_ender: bool) -> Ta
             }
         }
     }
-    Tag::Compound(original)
+    Ok(Tag::Compound(original))
 }
 
 /// Where one side of a move lives while it is made.
@@ -336,6 +359,14 @@ impl Game<'_> {
         if matches!(a, Side::File(_)) && matches!(b, Some(Side::File(_))) {
             return Err(Error::BothAway);
         }
+        let file_uuid = match (&a, &b) {
+            (Side::File(_), _) => Some(from_uuid),
+            (_, Some(Side::File(_))) => Some(to_uuid),
+            _ => None,
+        };
+        if file_uuid.is_some_and(|uuid| only_backup_readable(&self.world_root, uuid)) {
+            return Err(Error::BackupOnly);
+        }
         let items = self.res.items();
         let max = |s: &ItemStack| items.get(&s.item).map_or(64, |i| i.max_stack);
         let read = |side: &Side, kind| match side {
@@ -368,7 +399,7 @@ impl Game<'_> {
                             || other == Some(NativeInventoryKind::Player),
                         kind == NativeInventoryKind::Ender
                             || other == Some(NativeInventoryKind::Ender),
-                    );
+                    )?;
                     write_dat(&playerdata::path(&world, uuid), tag)
                         .map_err(|e| Error::File(e.to_string()))?;
                     return Ok(Side::File(level));
@@ -541,6 +572,31 @@ mod tests {
                 .is_none()
             );
         });
+    }
+
+    /// A stack nested past the save depth fits the planned slots but not the
+    /// file: the edit is refused before anything is written or cleared.
+    #[test]
+    fn a_stack_the_player_file_would_drop_refuses_the_edit() {
+        let mut deep = Tag::compound([("bottom", Tag::Int(1))]);
+        for _ in 0..horizon_core::nbt::Limits::saved().max_depth {
+            deep = Tag::compound([("nested", deep)]);
+        }
+        let mut lost = ItemStack::new("minecraft:stone", 1);
+        lost.data_mut()
+            .other
+            .push(("minecraft:custom_data".into(), deep));
+        let mut level = Level::default();
+        let mut ender = vec![None; 27];
+        ender[0] = Some(stack("minecraft:diamond", 2));
+        set_level_slots(&mut level, NativeInventoryKind::Ender, ender.clone());
+        assert!(saved_inventory_tag(&level, false, true).is_ok());
+        ender[3] = Some(lost);
+        set_level_slots(&mut level, NativeInventoryKind::Ender, ender);
+        assert_eq!(
+            saved_inventory_tag(&level, false, true),
+            Err(Error::Unsaveable)
+        );
     }
 
     #[test]
