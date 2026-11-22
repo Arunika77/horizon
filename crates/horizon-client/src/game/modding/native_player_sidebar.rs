@@ -244,7 +244,7 @@ mod tests {
             );
             assert_eq!(game.player_set_sidebar(player, None), Ok(true));
             let cleared = sent(&rx);
-            assert_eq!(objectives(&cleared), [managed.clone()]);
+            assert_eq!(objectives(&cleared), std::slice::from_ref(&managed));
             assert_eq!(displays(&cleared).last(), Some(&one_shot));
 
             // One-shot first: the managed sidebar is created once, and the one-shot clear
@@ -256,7 +256,7 @@ mod tests {
             assert_eq!(game.player_set_sidebar(player, sidebar()), Ok(true));
             let shown = sent(&rx);
             assert_eq!(objectives(&shown), [(0, SIDEBAR_OBJECTIVE.to_owned())]);
-            assert_eq!(displays(&shown), [managed.clone()]);
+            assert_eq!(displays(&shown), std::slice::from_ref(&managed));
             assert_eq!(game.player_send_sidebar(player, None), Ok(true));
             let removed = sent(&rx);
             assert_eq!(
