@@ -409,7 +409,7 @@ pub mod timeline {
             .filter_map(|thread| {
                 let mut thread = thread.lock().unwrap_or_else(PoisonError::into_inner);
                 let taken = thread.events.len();
-                let _ = HELD.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
+                let _ = HELD.try_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
                     Some(held.saturating_sub(taken))
                 });
                 (taken > 0).then(|| ThreadEvents {
