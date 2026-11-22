@@ -512,11 +512,9 @@ dependencies = [
  "dunce",
  "horizon-addresses",
  "horizon-mod-package",
- "horizon-mod-point-emit",
  "horizon-mod-source",
  "horizon-mod-surface",
  "horizon-mod-vocab",
- "horizon-mod-wasm",
  "horizon-port-pack",
  "horizon-release-sign",
  "libc",
@@ -531,7 +529,6 @@ dependencies = [
  "ureq",
  "wasm-encoder 0.261.0",
  "wasmparser 0.261.0",
- "wasmtime",
  "wat",
  "zip",
 ]
@@ -1843,7 +1840,6 @@ dependencies = [
  "horizon-game-discovery",
  "horizon-gameplay",
  "horizon-guest-stack",
- "horizon-hdr",
  "horizon-hooks",
  "horizon-items",
  "horizon-java-properties",
@@ -1868,7 +1864,6 @@ dependencies = [
  "horizon-threads",
  "horizon-world",
  "log",
- "miniz_oxide 0.8.9",
  "naga",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
@@ -1882,7 +1877,6 @@ dependencies = [
  "sha2",
  "tempfile",
  "toml",
- "unicode-bidi",
  "ureq",
  "wat",
  "wgpu",
@@ -1988,6 +1982,7 @@ dependencies = [
  "pollster",
  "rayon",
  "rustix 1.1.5",
+ "same-file",
  "serde",
  "serde_json",
  "sha1",
@@ -2404,14 +2399,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "horizon-mod-point-emit"
-version = "0.1.0"
-dependencies = [
- "horizon-mod-package",
- "serde",
-]
-
-[[package]]
 name = "horizon-mod-point-shape"
 version = "0.1.0"
 dependencies = [
@@ -2511,7 +2498,6 @@ dependencies = [
  "horizon-mod-api-gen",
  "horizon-mod-api-macros",
  "horizon-mod-package",
- "horizon-mod-point-emit",
  "horizon-mod-points",
  "horizon-mod-runtime",
  "horizon-threads",
@@ -2546,7 +2532,6 @@ name = "horizon-modding-examples"
 version = "0.0.0"
 dependencies = [
  "horizon-mod-api",
- "horizon-mod-points",
 ]
 
 [[package]]
