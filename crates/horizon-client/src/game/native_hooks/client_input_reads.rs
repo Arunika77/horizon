@@ -45,4 +45,270 @@ impl Game<'_> {
             label: keybinds::display_name(self.settings.keys.get(name)).try_into_api()?,
         }))
     }
+    /// Every registered key mapping across Minecraft vanilla controls, Horizon built-ins,
+    /// and loaded mods, with translated labels, current/default keys, modifiers, and conflict scenes.
+    pub(in crate::game) fn all_keybinds(&self) -> Vec<mod_api::RegisteredKeyBind> {
+        build_all_keybinds(&self.settings)
+    }
+    /// Rebinds a mapping (`owner == ""` for Vanilla/Horizon id; non-empty `owner` for a mod's
+    /// registration id), saves settings, and syncs live bindings.
+    pub(in crate::game) fn set_keybind(
+        &mut self,
+        owner: &str,
+        id: &str,
+        key: &str,
+        modifiers: u32,
+    ) -> bool {
+        if !apply_keybind_change(&mut self.settings, owner, id, key, modifiers) {
+            return false;
+        }
+        self.settings.save(&Self::options_path());
+        self.settings.keys.sync_action_bindings();
+        self.apply_settings();
+        self.ui.options.layout_changed();
+        true
+    }
+}
+
+fn label_or(key: &str, fallback: &str) -> String {
+    if horizon_client::lang::has(key) {
+        horizon_client::lang::get(key)
+    } else {
+        fallback.to_owned()
+    }
+}
+
+fn build_all_keybinds(settings: &crate::game::Settings) -> Vec<mod_api::RegisteredKeyBind> {
+    let mut out = Vec::new();
+    for (name, default_key, category) in keybinds::all_mappings() {
+        let is_horizon = keybinds::HORIZON_MAPPINGS
+            .iter()
+            .any(|(n, _, _)| n == name);
+        let cat_key = format!("key.category.minecraft.{category}");
+        out.push(mod_api::RegisteredKeyBind {
+            owner: String::new(),
+            owner_title: if is_horizon { "Horizon" } else { "Minecraft" }.to_owned(),
+            id: (*name).to_owned(),
+            label: horizon_client::lang::get(name),
+            category: horizon_client::lang::get(&cat_key),
+            key: settings.keys.get(name).to_owned(),
+            modifiers: 0,
+            default_key: (*default_key).to_owned(),
+            default_modifiers: 0,
+            context: mod_api::KeyConflictContext::Universal,
+        });
+    }
+    out.push(mod_api::RegisteredKeyBind {
+        owner: String::new(),
+        owner_title: "Horizon".to_owned(),
+        id: horizon_client::extras::SORT_KEY.to_owned(),
+        label: label_or("horizon.extras.sort_key", "Inventory Sort Key"),
+        category: "Horizon".to_owned(),
+        key: settings.extras.sort_key.clone(),
+        modifiers: 0,
+        default_key: "key.keyboard.unknown".to_owned(),
+        default_modifiers: 0,
+        context: mod_api::KeyConflictContext::Gui,
+    });
+    out.push(mod_api::RegisteredKeyBind {
+        owner: String::new(),
+        owner_title: "Horizon".to_owned(),
+        id: horizon_client::pvp::HUD_EDITOR_KEY.to_owned(),
+        label: label_or("horizon.pvp.hud_editor_key", "HUD Editor Key"),
+        category: "Horizon".to_owned(),
+        key: settings.extras.pvp.editor_key.clone(),
+        modifiers: 0,
+        default_key: "key.keyboard.unknown".to_owned(),
+        default_modifiers: 0,
+        context: mod_api::KeyConflictContext::InGame,
+    });
+    for installed in &settings.mods.installed {
+        if settings.mods.disabled.contains(&installed.id) {
+            continue;
+        }
+        let Some(page) = installed.native.as_ref() else {
+            continue;
+        };
+        let owner_title = settings
+            .mods
+            .info
+            .get(&installed.id)
+            .map(|info| info.name.clone())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| installed.title.clone());
+        for mapping in &page.mappings {
+            let (key, modifiers) =
+                settings
+                    .mods
+                    .binding(&installed.id, &mapping.id, (&mapping.key, mapping.modifiers));
+            let category = if mapping.category.is_empty() {
+                String::new()
+            } else {
+                horizon_client::lang::get(&mapping.category)
+            };
+            let context = match mapping.context {
+                horizon_client::mod_list::KeyConflictContext::InGame => {
+                    mod_api::KeyConflictContext::InGame
+                }
+                horizon_client::mod_list::KeyConflictContext::Gui => {
+                    mod_api::KeyConflictContext::Gui
+                }
+                horizon_client::mod_list::KeyConflictContext::Universal => {
+                    mod_api::KeyConflictContext::Universal
+                }
+            };
+            out.push(mod_api::RegisteredKeyBind {
+                owner: installed.id.clone(),
+                owner_title: owner_title.clone(),
+                id: mapping.id.clone(),
+                label: horizon_client::lang::get(&mapping.label),
+                category,
+                key,
+                modifiers,
+                default_key: mapping.key.clone(),
+                default_modifiers: mapping.modifiers,
+                context,
+            });
+        }
+    }
+    out
+}
+
+fn apply_keybind_change(
+    settings: &mut crate::game::Settings,
+    owner: &str,
+    id: &str,
+    key: &str,
+    modifiers: u32,
+) -> bool {
+    let valid_key = key == "key.keyboard.unknown"
+        || keybinds::key_code(key).is_some()
+        || keybinds::mouse_button(key).is_some();
+    if !valid_key {
+        return false;
+    }
+    if owner.is_empty() {
+        if id == horizon_client::extras::SORT_KEY || id == horizon_client::pvp::HUD_EDITOR_KEY {
+            return settings.extras.set_key(id, key.to_owned());
+        }
+        if !keybinds::all_mappings().any(|(name, _, _)| *name == id) {
+            return false;
+        }
+        settings.keys.set(id, key);
+        return true;
+    }
+    let Some((default_key, default_mods)) = settings
+        .mods
+        .installed
+        .iter()
+        .find(|m| m.id == owner)
+        .and_then(|m| m.native.as_ref())
+        .and_then(|p| p.mappings.iter().find(|k| k.id == id))
+        .map(|k| (k.key.clone(), k.modifiers))
+    else {
+        return false;
+    };
+    let mods = modifiers & 0b0111;
+    if key == default_key && mods == default_mods {
+        settings.mods.reset_binding(owner, id);
+    } else {
+        settings.mods.set_binding(owner, id, key, mods);
+    }
+    true
+}
+
+#[cfg(test)]
+mod keygrid_host_tests {
+    use super::{apply_keybind_change, build_all_keybinds};
+    use crate::game::Settings;
+    use horizon_client::mod_list::{
+        Installed, KeyConflictContext as PkgContext, KeyMapping as PkgKeyMapping, NativePage,
+    };
+
+    #[test]
+    fn keybinds_enumerate_and_apply_across_vanilla_horizon_and_mods() {
+        let mut settings = Settings::default();
+        settings.mods.installed.push(Installed {
+            id: "demo".into(),
+            title: "Demo 1.0".into(),
+            description: String::new(),
+            problem: None,
+            dev: false,
+            native: Some(NativePage {
+                mappings: vec![PkgKeyMapping {
+                    id: "sort".into(),
+                    label: "key.demo.sort".into(),
+                    key: "key.keyboard.r".into(),
+                    modifiers: 0,
+                    context: PkgContext::Gui,
+                    category: String::new(),
+                }],
+                settings: Vec::new(),
+            }),
+        });
+        assert!(!apply_keybind_change(
+            &mut settings,
+            "",
+            "key.forward",
+            "invalid.key",
+            0
+        ));
+        assert!(!apply_keybind_change(
+            &mut settings,
+            "",
+            "key.does.not.exist",
+            "key.keyboard.g",
+            0
+        ));
+        assert!(apply_keybind_change(
+            &mut settings,
+            "",
+            "key.forward",
+            "key.mouse.4",
+            0
+        ));
+        assert!(apply_keybind_change(
+            &mut settings,
+            "",
+            horizon_client::extras::SORT_KEY,
+            "key.keyboard.k",
+            0
+        ));
+        assert!(apply_keybind_change(
+            &mut settings,
+            "demo",
+            "sort",
+            "key.keyboard.g",
+            1 | 8
+        ));
+
+        let list = build_all_keybinds(&settings);
+        let fwd = list.iter().find(|b| b.owner.is_empty() && b.id == "key.forward").unwrap();
+        assert_eq!(fwd.key, "key.mouse.4");
+        assert_eq!(fwd.owner_title, "Minecraft");
+        let sort = list.iter().find(|b| b.id == horizon_client::extras::SORT_KEY).unwrap();
+        assert_eq!(sort.key, "key.keyboard.k");
+        assert_eq!(sort.owner_title, "Horizon");
+        let demo = list.iter().find(|b| b.owner == "demo" && b.id == "sort").unwrap();
+        assert_eq!(demo.key, "key.keyboard.g");
+        assert_eq!(demo.modifiers, 1);
+        assert_eq!(demo.context, mod_api::KeyConflictContext::Gui);
+
+        // Resetting back to default clears mod override map cleanly.
+        assert!(apply_keybind_change(
+            &mut settings,
+            "demo",
+            "sort",
+            "key.keyboard.r",
+            0
+        ));
+        assert!(
+            settings
+                .mods
+                .keys
+                .get("demo")
+                .and_then(|m| m.get("sort"))
+                .is_none()
+        );
+    }
 }
