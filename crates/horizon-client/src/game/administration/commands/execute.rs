@@ -68,6 +68,9 @@ pub(in crate::game) struct ExecState {
     pub prepared_function: Option<super::super::functions::PreparedFunctionCall>,
     /// Original input for the active parsed mod command, including any execute prefix.
     pub native_command_input: Option<String>,
+    /// The leaf text of the mod command whose `run_mod_command` listeners run
+    /// (`ServerHost::mod_command_raw`).
+    pub native_command_raw: Option<String>,
 }
 
 /// A modifier that brings the sources to `max_command_forks` ends the chain

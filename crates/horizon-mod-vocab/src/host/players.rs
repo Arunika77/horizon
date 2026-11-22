@@ -42,6 +42,14 @@ pub trait PlayersServerHost {
     /// taken: it lets nobody else on.
     #[access(WorldOnly)]
     fn server_set_max_players(&mut self, max_players: u32) -> Result<(), PlayerLimitRefusal>;
+    /// Side: server.
+    /// The text of the mod command whose `run_mod_command` listeners are running, as
+    /// submitted and without its leading slash; for `execute … run` and `return run`,
+    /// the leaf command after `run`. Whitespace is kept as typed. This is untrusted
+    /// input: read validated values from `CommandInvocation`'s typed arguments. None
+    /// outside a `run_mod_command` listener.
+    #[access(WorldOnly)]
+    fn mod_command_raw(&self) -> Option<String>;
 }
 /// The client host's methods of the `players` area, implemented by the game and reached through [`crate::ClientHost`].
 #[horizon_mod_api_macros::host_area]

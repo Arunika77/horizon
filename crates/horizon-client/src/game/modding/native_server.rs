@@ -2055,11 +2055,13 @@ impl Game<'_> {
             .exec
             .native_command_input
             .as_deref()
-            .and_then(|input| input.get(start..));
-        let command = command.with_raw(raw.unwrap_or_default().to_owned());
+            .and_then(|input| input.get(start..))
+            .map(str::to_owned);
         let origin = self.native_command_origin(self.ui.registries.permission)?;
         let mut ran = false;
+        let outer = std::mem::replace(&mut self.exec.native_command_raw, raw);
         self.native_run_mod_command(&origin, &command, &mut ran);
+        self.exec.native_command_raw = outer;
         if ran {
             Ok(1)
         } else {
@@ -2192,6 +2194,12 @@ impl Game<'_> {
             arguments.push(CommandArgument::new(argument.name, value));
         }
         Ok(self.native_invocation(context.literals, arguments))
+    }
+
+    /// `ServerHost::mod_command_raw`: the leaf text of the mod command whose
+    /// `run_mod_command` listeners are running, None outside them.
+    pub(super) fn mod_command_raw(&self) -> Option<String> {
+        self.exec.native_command_raw.clone()
     }
 
     /// Dispatch raw input before parsing a registered player command.
@@ -3721,7 +3729,10 @@ mod tests {
     #[ignore = "daily"]
     fn native_typed_commands_reach_listeners_after_parse_and_source_resolution() {
         use mod_api::{CommandArgumentValue as Value, CommandInvocation};
-        struct Commands(Arc<Mutex<Vec<(bool, CommandInvocation)>>>);
+        struct Commands(
+            Arc<Mutex<Vec<(bool, CommandInvocation)>>>,
+            Arc<Mutex<Vec<Option<String>>>>,
+        );
         impl Commands {
             fn record(&self, console: bool, command: &CommandInvocation) {
                 if command.literals == ["typed", "give"] {
@@ -3756,21 +3767,23 @@ mod tests {
             }
             fn run_mod_command(
                 &self,
-                _: &mut dyn mod_api::ServerHost,
+                host: &mut dyn mod_api::ServerHost,
                 event: &mut mod_api::RunModCommandEvent<'_>,
             ) -> mod_api::Flow {
                 self.record(
                     matches!(event.source, mod_api::CommandSource::Console { .. }),
                     event.command,
                 );
+                self.1.lock().unwrap().push(host.mod_command_raw());
                 mod_api::Flow::Cancel
             }
         }
         let heard = Arc::new(Mutex::new(Vec::new()));
+        let raws = Arc::new(Mutex::new(Vec::new()));
         mod_platform::testing::with_mods(
             vec![mod_api::ModEntry::new(
                 "typed_commands",
-                Box::new(Commands(heard.clone())),
+                Box::new(Commands(heard.clone(), raws.clone())),
             )]
             .into(),
             || {
@@ -3854,8 +3867,13 @@ mod tests {
                     assert_eq!(heard.len(), 12);
                     let first = &heard[0].1;
                     assert_eq!(first.literals, ["typed", "give"]);
-                    assert_eq!(first.raw(), "typed give guest13 37 hello  typed world");
-                    assert_eq!(heard[11].1.raw(), "typed opt 13");
+                    let raws = raws.lock().unwrap();
+                    assert_eq!(
+                        raws[0].as_deref(),
+                        Some("typed give guest13 37 hello  typed world")
+                    );
+                    assert_eq!(raws[11].as_deref(), Some("typed opt 13"));
+                    assert_eq!(game.mod_command_raw(), None, "cleared after the listeners");
                     assert_eq!(first.argument("who"), Some(&Value::Player(other)));
                     assert_eq!(first.argument("amount"), Some(&Value::Integer(37)));
                     assert_eq!(
