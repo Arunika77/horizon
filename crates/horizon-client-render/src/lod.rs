@@ -2268,8 +2268,7 @@ impl Lod {
                                             }
                                             let tile = (samples.len() == CELLS * CELLS)
                                                 .then(|| TileColumns::from_columns(&samples));
-                                            if tx.send(Done::Sample { key, tile }).is_err()
-                                            {
+                                            if tx.send(Done::Sample { key, tile }).is_err() {
                                                 return;
                                             }
                                         }
