@@ -2298,16 +2298,15 @@ fn intern_saved_fluids(root: &NamedTag) {
     }
 }
 
-fn mod_ticket_to_nbt(ticket: &ModTicket, controller: &str) -> Option<Tag> {
+fn mod_ticket_to_nbt(ticket: &ModTicket, controller: &str) -> Tag {
     let owner = match ticket.owner {
         TicketOwner::Block(pos) => ("block", Tag::IntArray(pos.to_vec())),
         TicketOwner::Entity(uuid) => (
             "entity",
             Tag::IntArray((0..4).map(|i| (uuid >> (96 - 32 * i)) as i32).collect()),
         ),
-        TicketOwner::Transient(_) => return None,
     };
-    Some(Tag::compound([
+    Tag::compound([
         ("controller", Tag::String(controller.into())),
         ("owner", Tag::compound([owner])),
         (
@@ -2318,7 +2317,7 @@ fn mod_ticket_to_nbt(ticket: &ModTicket, controller: &str) -> Option<Tag> {
             "natural_spawning",
             Tag::Byte(i8::from(ticket.natural_spawning)),
         ),
-    ]))
+    ])
 }
 /// A saved ticket: the id of the controller that held it, and the ticket without its slot.
 fn mod_ticket_from_nbt(tag: &Tag) -> Option<(String, ModTicket)> {
@@ -2603,7 +2602,7 @@ impl SaveDir {
         let path = self.mod_tickets_path();
         let list: Vec<Tag> = tickets
             .to_save()
-            .filter_map(|t| mod_ticket_to_nbt(t, id_of(t.controller)?))
+            .filter_map(|t| Some(mod_ticket_to_nbt(t, id_of(t.controller)?)))
             .collect();
         if list.is_empty() && !path.exists() {
             return Ok(());
@@ -5172,23 +5171,32 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let save = SaveDir::new(root.path().to_path_buf(), LevelShape::OVERWORLD);
         let mut tickets = ModTickets::default();
-        let transient = ModTicket {
+        let block = ModTicket {
             controller: 0,
-            owner: TicketOwner::Transient(1),
+            owner: TicketOwner::Block([1, -2, 3]),
             chunk: (4, 5),
-            natural_spawning: false,
+            natural_spawning: true,
         };
-        let persistent = ModTicket {
-            owner: TicketOwner::Entity(1),
+        let entity = ModTicket {
+            owner: TicketOwner::Entity(0x1234_5678_9abc_def0_1122_3344_5566_7788),
             chunk: (6, 7),
-            ..transient.clone()
+            natural_spawning: false,
+            ..block.clone()
         };
-        tickets.insert(transient);
-        tickets.insert(persistent.clone());
-        assert!(tickets.holds((4, 5)));
+        tickets.insert_transient(crate::mod_chunk_tickets::TransientTicket {
+            controller: 0,
+            operation: 1,
+            chunk: (8, 9),
+            natural_spawning: false,
+        });
+        tickets.insert(block.clone());
+        tickets.insert(entity.clone());
+        assert!(tickets.holds((8, 9)));
         save.save_mod_tickets(&tickets, |_| Some("test:teleport"))
             .unwrap();
-        assert_eq!(save.load_mod_tickets(|_| Some(0)), [persistent]);
+        let mut loaded = save.load_mod_tickets(|_| Some(0));
+        loaded.sort();
+        assert_eq!(loaded, [block, entity]);
     }
 
     #[test]
