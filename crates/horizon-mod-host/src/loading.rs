@@ -215,8 +215,13 @@ pub fn main_with(
     );
 }
 
+/// A mod's profiler scope is the game's span, boxed only while something would see it: with
+/// spans off and no sampler it costs one check and no allocation.
 fn install_native_profile_spans() {
-    mod_api::__private::install_profile_spans(|name| Box::new(horizon_client::spans::guard(name)));
+    mod_api::__private::install_profile_spans(|name| {
+        use horizon_client::spans;
+        spans::observed().then(|| Box::new(spans::guard(name)) as Box<dyn std::any::Any>)
+    });
 }
 
 #[cfg(test)]

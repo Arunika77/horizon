@@ -2,7 +2,8 @@
 
 use std::{any::Any, sync::OnceLock};
 
-type Provider = fn(&'static str) -> Box<dyn Any>;
+/// The game's scope for a name, None when nothing would see it (nothing records or samples).
+type Provider = fn(&'static str) -> Option<Box<dyn Any>>;
 static PROVIDER: OnceLock<Provider> = OnceLock::new();
 
 /// A named profiler scope. Dropping it ends the measurement on the current thread.
@@ -16,7 +17,7 @@ pub struct Guard {
 /// tests have no recorder. Declare the name once and reuse it on every call.
 pub fn guard(name: &'static str) -> Guard {
     Guard {
-        _game_guard: PROVIDER.get().map(|start| start(name)),
+        _game_guard: PROVIDER.get().and_then(|start| start(name)),
     }
 }
 

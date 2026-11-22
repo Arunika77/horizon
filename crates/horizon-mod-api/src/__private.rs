@@ -17,7 +17,7 @@ pub mod profiler;
 
 /// Installs the built-in profiler provider before native mods start.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn install_profile_spans(provider: fn(&'static str) -> Box<dyn std::any::Any>) {
+pub fn install_profile_spans(provider: fn(&'static str) -> Option<Box<dyn std::any::Any>>) {
     crate::profiling::install(provider);
 }
 
