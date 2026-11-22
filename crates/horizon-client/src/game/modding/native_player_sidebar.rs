@@ -165,11 +165,11 @@ mod tests {
     }
 
     /// The (method, name) of the objective packets among `packets`.
-    fn objectives(packets: &[C]) -> Vec<(u8, String)> {
+    fn objectives(packets: &[C]) -> Vec<(i32, String)> {
         packets
             .iter()
             .filter_map(|p| match p {
-                C::SetObjective(o) => Some((o.method as u8, o.name.clone())),
+                C::SetObjective(o) => Some((i32::from(o.method), o.name.clone())),
                 _ => None,
             })
             .collect()
