@@ -512,7 +512,6 @@ dependencies = [
  "dunce",
  "horizon-addresses",
  "horizon-mod-package",
- "horizon-mod-point-emit",
  "horizon-mod-source",
  "horizon-mod-surface",
  "horizon-mod-vocab",
@@ -1983,6 +1982,7 @@ dependencies = [
  "pollster",
  "rayon",
  "rustix 1.1.5",
+ "same-file",
  "serde",
  "serde_json",
  "sha1",
@@ -2399,14 +2399,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "horizon-mod-point-emit"
-version = "0.1.0"
-dependencies = [
- "horizon-mod-package",
- "serde",
-]
-
-[[package]]
 name = "horizon-mod-point-shape"
 version = "0.1.0"
 dependencies = [
@@ -2506,7 +2498,6 @@ dependencies = [
  "horizon-mod-api-gen",
  "horizon-mod-api-macros",
  "horizon-mod-package",
- "horizon-mod-point-emit",
  "horizon-mod-points",
  "horizon-mod-runtime",
  "horizon-threads",
@@ -2541,7 +2532,6 @@ name = "horizon-modding-examples"
 version = "0.0.0"
 dependencies = [
  "horizon-mod-api",
- "horizon-mod-points",
 ]
 
 [[package]]
