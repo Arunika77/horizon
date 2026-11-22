@@ -4,28 +4,28 @@ mod item_metadata_tests;
 use crate::{assets::Assets, blocks::BlockFacts, crafting::CraftingRemainder, items::Items};
 use horizon_mod_package::manifest::JarRef;
 use horizon_world::native_load_context::DataLoadOrigin;
+#[path = "mod_content_biome_modifier_tests.rs"]
+mod biome_modifier_tests;
 #[path = "mod_content_block_entity_tests.rs"]
 mod block_entity_tests;
-#[path = "mod_content_farmland_tests.rs"]
-mod farmland_tests;
-#[path = "mod_content_jar_tests.rs"]
-mod jar_tests;
-#[path = "mod_content_worldgen_tests.rs"]
-mod worldgen_tests;
-#[path = "mod_content_exploration_maps_tests.rs"]
-mod exploration_maps_tests;
-#[path = "mod_content_shapes_tests.rs"]
-mod shapes_tests;
-#[path = "mod_content_tuple_shapes_tests.rs"]
-mod tuple_shapes_tests;
 #[path = "mod_content_block_state_properties_tests.rs"]
 mod block_state_properties_tests;
 #[path = "mod_content_block_state_tables_tests.rs"]
 mod block_state_tables_tests;
-#[path = "mod_content_biome_modifier_tests.rs"]
-mod biome_modifier_tests;
+#[path = "mod_content_exploration_maps_tests.rs"]
+mod exploration_maps_tests;
+#[path = "mod_content_farmland_tests.rs"]
+mod farmland_tests;
+#[path = "mod_content_jar_tests.rs"]
+mod jar_tests;
+#[path = "mod_content_shapes_tests.rs"]
+mod shapes_tests;
 #[path = "mod_content_structure_modifier_tests.rs"]
 mod structure_modifier_tests;
+#[path = "mod_content_tuple_shapes_tests.rs"]
+mod tuple_shapes_tests;
+#[path = "mod_content_worldgen_tests.rs"]
+mod worldgen_tests;
 /// A Java jar's assets are a pack layer under the mod's own files, in mod
 /// order under the later mods. Passive assets stay in the jar, and the files
 /// every pack stacks (atlases here) merge across vanilla, the jars and the
