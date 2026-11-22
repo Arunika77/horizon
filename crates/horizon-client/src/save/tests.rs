@@ -1,4 +1,3 @@
-
 use crate::mobs::spawner::SpawnDataExt;
 
 /// A bare file name lives in the working directory: syncing its folder syncs `.`, not the
