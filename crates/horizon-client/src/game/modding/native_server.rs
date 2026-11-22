@@ -64,6 +64,9 @@ pub(crate) struct NativeSidebar {
 /// server's scoreboard never holds it. The space keeps it apart from every
 /// objective of the world: commands take only `[A-Za-z0-9_.+-]` in a name.
 pub(super) const SIDEBAR_OBJECTIVE: &str = "horizon native sidebar";
+/// The objective of a one-shot sidebar (`player_send_sidebar`), apart from the
+/// personal one so the two calls never remove or recreate each other's.
+pub(super) const SENT_SIDEBAR_OBJECTIVE: &str = "horizon native sent sidebar";
 
 /// The report's name of an operator level (`commands.json`'s
 /// `permissions`).
@@ -1339,11 +1342,11 @@ impl Game<'_> {
             .lan
             .as_ref()
             .and_then(|host| host.hub.guests.iter().find(|g| g.uuid == uuid))
-            .map(|g| (g.conn, g.name.clone(), g.personal_sidebar));
+            .map(|g| (g.conn, g.name.clone(), g.personal_sidebar, g.sent_sidebar));
         let board = &self.score.board;
         let team_slot = found
             .as_ref()
-            .and_then(|(_, name, _)| board.players_team(name))
+            .and_then(|(_, name, ..)| board.players_team(name))
             .and_then(|team| team.color.as_deref())
             .and_then(|color| {
                 let index = horizon_client::text::COLORS
@@ -1351,8 +1354,10 @@ impl Game<'_> {
                     .position(|c| c.1 == color)?;
                 Some(3 + index as i32)
             });
-        let was_set = found.as_ref().is_some_and(|(_, _, set)| *set);
-        let mut packets = Self::sidebar_packets(sidebar, was_set, team_slot);
+        let was_set = found.as_ref().is_some_and(|(_, _, set, _)| *set);
+        let one_shot = found.as_ref().is_some_and(|(.., sent)| *sent);
+        let slots: Vec<i32> = std::iter::once(1).chain(team_slot).collect();
+        let mut packets = Self::sidebar_packets(SIDEBAR_OBJECTIVE, sidebar, was_set, &slots);
         if sidebar.is_none() && was_set {
             // Removing the objective empties every slot that showed it, also the slots of a team the
             // player has left since; the world's own objectives come back in all of them.
@@ -1373,9 +1378,16 @@ impl Game<'_> {
                     }));
                 }
             }
+            // A one-shot sidebar sent while this one showed was held back: slot 1 is its now.
+            if one_shot {
+                packets.push(C::SetDisplayObjective(play::SetDisplayObjective {
+                    slot: 1,
+                    objective: SENT_SIDEBAR_OBJECTIVE.to_owned(),
+                }));
+            }
         }
         let sent = self.native_send_all(uuid, packets);
-        if sent && let Some((conn, _, _)) = found {
+        if sent && let Some((conn, ..)) = found {
             let set = sidebar.is_some();
             if let Some(host) = self.lan.as_mut() {
                 host.hub.update_guest(conn, |g| g.personal_sidebar = set);
@@ -1383,21 +1395,60 @@ impl Game<'_> {
         }
         sent
     }
-    /// Send only the personal objective. Normal scoreboard updates can replace its slot.
+    /// A one-shot sidebar in that player's slot 1, on an objective of its own
+    /// (`SENT_SIDEBAR_OBJECTIVE`): the world's scoreboard may take the slot back
+    /// later, and a team's sidebar slot still wins on the client. While a
+    /// personal sidebar (`native_sidebar`) shows, the objective is sent without
+    /// taking the slot, and it takes slot 1 when that one is cleared. None
+    /// removes only this objective and gives slot 1 back to the world's sidebar
+    /// objective, unless the personal one shows. False when they aren't on.
     pub(super) fn native_send_sidebar(
         &mut self,
         uuid: u128,
         sidebar: Option<&NativeSidebar>,
     ) -> bool {
-        self.native_send_all(uuid, Self::sidebar_packets(sidebar, true, None))
+        self.load_scoreboard();
+        let found = self
+            .lan
+            .as_ref()
+            .and_then(|host| host.hub.guests.iter().find(|g| g.uuid == uuid))
+            .map(|g| (g.conn, g.personal_sidebar, g.sent_sidebar));
+        let managed = found.is_some_and(|(_, managed, _)| managed);
+        let existed = found.is_some_and(|(.., sent)| sent);
+        let slots: &[i32] = if managed { &[] } else { &[1] };
+        let mut packets = Self::sidebar_packets(SENT_SIDEBAR_OBJECTIVE, sidebar, existed, slots);
+        if sidebar.is_none()
+            && existed
+            && !managed
+            && let Some(world) = self
+                .score
+                .board
+                .display_objective(horizon_client::scoreboard::SLOT_SIDEBAR)
+        {
+            packets.push(C::SetDisplayObjective(play::SetDisplayObjective {
+                slot: 1,
+                objective: world.name.clone(),
+            }));
+        }
+        let sent = self.native_send_all(uuid, packets);
+        if sent && let Some((conn, ..)) = found {
+            let set = sidebar.is_some();
+            if let Some(host) = self.lan.as_mut() {
+                host.hub.update_guest(conn, |g| g.sent_sidebar = set);
+            }
+        }
+        sent
     }
 
+    /// The packets that put `sidebar` on `objective` and show it in `slots`, after
+    /// removing the objective when `remove_current` (one is on); None only removes.
     fn sidebar_packets(
+        objective: &str,
         sidebar: Option<&NativeSidebar>,
         remove_current: bool,
-        team_slot: Option<i32>,
+        slots: &[i32],
     ) -> Vec<C> {
-        let objective = SIDEBAR_OBJECTIVE.to_owned();
+        let objective = objective.to_owned();
         let mut packets = Vec::new();
         // Removed first, so the new one's lines replace all the old ones; only when one is on.
         if remove_current {
@@ -1414,12 +1465,8 @@ impl Game<'_> {
                 method: 0,
                 display: Some((title, 0, Some(play::NumberFormat::Blank))),
             }));
-            // DisplaySlot.SIDEBAR.
-            packets.push(C::SetDisplayObjective(play::SetDisplayObjective {
-                slot: 1,
-                objective: objective.clone(),
-            }));
-            if let Some(slot) = team_slot {
+            // DisplaySlot.SIDEBAR, then the team colour's slot when there is one.
+            for &slot in slots {
                 packets.push(C::SetDisplayObjective(play::SetDisplayObjective {
                     slot,
                     objective: objective.clone(),

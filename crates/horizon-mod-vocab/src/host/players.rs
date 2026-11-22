@@ -708,10 +708,12 @@ pub trait PlayersBackendMut {
         sidebar: Option<Sidebar>,
     ) -> Result<bool, TextFormError>;
     /// Side: server.
-    /// Sends a standalone objective in the player's sidebar slot. The world's
-    /// scoreboard can subsequently replace the slot, including via a team
-    /// sidebar. None removes only this objective. This shares the objective
-    /// with `player_set_sidebar`; use one method consistently for a player.
+    /// Sends a one-shot sidebar to the player's sidebar slot, with the same checks and
+    /// refusals as `player_set_sidebar`. The world's scoreboard can later replace the
+    /// slot, and a team's sidebar slot still wins on the client. It has an objective of
+    /// its own, so it never removes or replaces the sidebar `player_set_sidebar` shows:
+    /// while that one shows, this one waits and takes the slot when it is cleared.
+    /// None removes only this one and gives the slot back to the world's sidebar.
     #[access(WorldOnly)]
     fn player_send_sidebar(
         &mut self,

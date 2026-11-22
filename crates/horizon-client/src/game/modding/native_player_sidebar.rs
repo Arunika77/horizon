@@ -21,6 +21,8 @@ impl Game<'_> {
         self.apply_player_sidebar(player, sidebar, true)
     }
 
+    /// `player_set_sidebar`'s checks, then a one-shot sidebar on an objective of its own
+    /// (`native_send_sidebar`): the world's scoreboard may take the slot back.
     pub(super) fn player_send_sidebar(
         &mut self,
         player: PlayerRef,
@@ -95,7 +97,10 @@ impl Game<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{native_guest_turn_tests::with_guests, native_server::SIDEBAR_OBJECTIVE};
+    use super::super::{
+        native_guest_turn_tests::with_guests,
+        native_server::{SENT_SIDEBAR_OBJECTIVE, SIDEBAR_OBJECTIVE},
+    };
     use horizon_client::lan::{Out, PlayerSender};
     use horizon_protocol::packets::play::{self, Clientbound as C};
     use mod_api::{Sidebar, SidebarLine, Text};
@@ -145,19 +150,38 @@ mod tests {
             .unwrap() as i32
     }
 
+    /// Guest 12's packets from here on.
+    fn listen(game: &mut super::Game<'_>) -> Receiver<Out> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        game.lan
+            .as_mut()
+            .unwrap()
+            .hub
+            .update_guest(12, |g| {
+                g.sender = PlayerSender::new(tx, Arc::new(AtomicUsize::new(0)));
+            })
+            .unwrap();
+        rx
+    }
+
+    /// The (method, name) of the objective packets among `packets`.
+    fn objectives(packets: &[C]) -> Vec<(u8, String)> {
+        packets
+            .iter()
+            .filter_map(|p| match p {
+                C::SetObjective(o) => Some((o.method as u8, o.name.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A one-shot sidebar has an objective of its own; clearing it gives slot 1 back to the
+    /// world's sidebar objective.
     #[test]
     #[ignore = "daily"]
-    fn send_sidebar_clears_only_the_personal_objective() {
+    fn send_sidebar_shows_its_own_objective_and_gives_the_slot_back() {
         with_guests(|game| {
-            let (tx, rx) = std::sync::mpsc::channel();
-            game.lan
-                .as_mut()
-                .unwrap()
-                .hub
-                .update_guest(12, |g| {
-                    g.sender = PlayerSender::new(tx, Arc::new(AtomicUsize::new(0)));
-                })
-                .unwrap();
+            let rx = listen(game);
             world_objective(
                 game,
                 "world_board",
@@ -166,10 +190,51 @@ mod tests {
             let player = game.player(12).unwrap();
             let sidebar = Sidebar::new(Text::literal("SMP"), Vec::new());
             assert_eq!(player.send_sidebar(game, Some(sidebar)), Ok(true));
-            assert_eq!(displays(&sent(&rx)), [(1, SIDEBAR_OBJECTIVE.to_owned())]);
+            let shown = sent(&rx);
+            assert_eq!(objectives(&shown), [(0, SENT_SIDEBAR_OBJECTIVE.to_owned())]);
+            assert_eq!(displays(&shown), [(1, SENT_SIDEBAR_OBJECTIVE.to_owned())]);
+            let guest = game.lan.as_ref().unwrap().hub.guest(12).unwrap();
+            assert!(!guest.personal_sidebar && guest.sent_sidebar);
+
+            assert_eq!(player.send_sidebar(game, None), Ok(true));
+            let cleared = sent(&rx);
+            assert_eq!(
+                objectives(&cleared),
+                [(1, SENT_SIDEBAR_OBJECTIVE.to_owned())]
+            );
+            assert_eq!(displays(&cleared), [(1, "world_board".to_owned())]);
+        });
+    }
+
+    /// The managed and the one-shot sidebar never remove or recreate each other's objective,
+    /// whichever comes first, and the one-shot one waits for slot 1 while the managed one shows.
+    #[test]
+    #[ignore = "daily"]
+    fn managed_and_one_shot_sidebars_keep_apart_in_either_order() {
+        with_guests(|game| {
+            let rx = listen(game);
+            let player = game.player(12).unwrap();
+            let sidebar = || Some(Sidebar::new(Text::literal("SMP"), Vec::new()));
+            let managed = (1, SIDEBAR_OBJECTIVE.to_owned());
+            let one_shot = (1, SENT_SIDEBAR_OBJECTIVE.to_owned());
+
+            // Managed first: the one-shot calls leave it shown.
+            assert_eq!(game.player_set_sidebar(player, sidebar()), Ok(true));
+            sent(&rx);
+            assert_eq!(game.player_send_sidebar(player, None), Ok(true));
             assert!(
-                !game
-                    .lan
+                objectives(&sent(&rx)).is_empty(),
+                "no one-shot sidebar was on"
+            );
+            assert_eq!(game.player_send_sidebar(player, sidebar()), Ok(true));
+            let held = sent(&rx);
+            assert_eq!(objectives(&held), [(0, SENT_SIDEBAR_OBJECTIVE.to_owned())]);
+            assert!(
+                displays(&held).is_empty(),
+                "the managed sidebar keeps slot 1"
+            );
+            assert!(
+                game.lan
                     .as_ref()
                     .unwrap()
                     .hub
@@ -177,13 +242,40 @@ mod tests {
                     .unwrap()
                     .personal_sidebar
             );
-
-            assert_eq!(player.send_sidebar(game, None), Ok(true));
+            assert_eq!(game.player_set_sidebar(player, None), Ok(true));
             let cleared = sent(&rx);
-            assert!(matches!(
-                cleared.as_slice(),
-                [C::SetObjective(objective)] if objective.method == 1 && objective.name == SIDEBAR_OBJECTIVE
-            ));
+            assert_eq!(objectives(&cleared), [managed.clone()]);
+            assert_eq!(displays(&cleared).last(), Some(&one_shot));
+
+            // One-shot first: the managed sidebar is created once, and the one-shot clear
+            // removes only its own objective.
+            assert_eq!(game.player_send_sidebar(player, None), Ok(true));
+            sent(&rx);
+            assert_eq!(game.player_send_sidebar(player, sidebar()), Ok(true));
+            sent(&rx);
+            assert_eq!(game.player_set_sidebar(player, sidebar()), Ok(true));
+            let shown = sent(&rx);
+            assert_eq!(objectives(&shown), [(0, SIDEBAR_OBJECTIVE.to_owned())]);
+            assert_eq!(displays(&shown), [managed.clone()]);
+            assert_eq!(game.player_send_sidebar(player, None), Ok(true));
+            let removed = sent(&rx);
+            assert_eq!(
+                objectives(&removed),
+                [(1, SENT_SIDEBAR_OBJECTIVE.to_owned())]
+            );
+            assert!(
+                displays(&removed).is_empty(),
+                "the managed sidebar keeps slot 1"
+            );
+            assert!(
+                game.lan
+                    .as_ref()
+                    .unwrap()
+                    .hub
+                    .guest(12)
+                    .unwrap()
+                    .personal_sidebar
+            );
         });
     }
 
