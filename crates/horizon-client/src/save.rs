@@ -6945,6 +6945,9 @@ mod tests {
     #[test]
     fn a_chunk_is_written_with_the_selected_region_version() {
         use super::{Record, compress_records};
+        let _codec = super::section_nbt::REGION_COMPRESSION_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tag = Arc::new(NamedTag {
             name: "".into(),
             tag: Tag::compound([("xPos", Tag::Int(3))]),

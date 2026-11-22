@@ -40,6 +40,11 @@ pub(super) fn palettes(
     (blocks, biomes)
 }
 
+/// `Compression::selected()` is process-wide: a test that changes it or that compares region bytes
+/// holds this, so a parallel test never writes with another codec halfway through.
+#[cfg(test)]
+pub(super) static REGION_COMPRESSION_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::super::*;
@@ -184,6 +189,9 @@ mod tests {
 
     #[test]
     fn cached_saves_produce_byte_identical_region_files() {
+        let _codec = super::REGION_COMPRESSION_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let registry: &'static BlockRegistry = Box::leak(Box::new(test_registry(
             &[
                 "minecraft:air",
