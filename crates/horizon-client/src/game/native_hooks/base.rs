@@ -5005,6 +5005,8 @@ fn options_page_name(screen: Screen, page: horizon_client::options_ui::Page) -> 
         Page::Font => "font",
         Page::Packs => "packs",
         Page::Mods => "mods",
+        Page::Graphics => "graphics",
+        Page::ShaderPacks => "shader_packs",
         _ => "other",
     }
     .to_owned())

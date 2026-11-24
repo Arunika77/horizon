@@ -90,8 +90,8 @@ impl KeyRegistration {
 }
 
 /// One key binding entry (Vanilla, Horizon, or Mod) returned by [`ClientHost::all_keybinds`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-// exhaustive: the game builds it with a literal; mods only read it
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 #[derive(horizon_mod_api_macros::Wire)]
 pub struct RegisteredKeyBind {
     /// Owner mod id (`""` for Vanilla/Horizon mappings, e.g. `"autofish"` or `"ipn"`).
